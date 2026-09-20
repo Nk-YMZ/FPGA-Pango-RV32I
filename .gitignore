@@ -1,0 +1,11 @@
+# Verilator / simulation build outputs
+build/
+
+# Waveforms
+*.vcd
+*.fst
+
+# Editor / temporary files
+*.swp
+*.swo
+*~
