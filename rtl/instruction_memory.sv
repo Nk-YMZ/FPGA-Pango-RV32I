@@ -8,11 +8,7 @@ module instruction_memory (
     logic [15:0] memory [0:255];
 
     initial begin
-        memory[0] = 16'b0001_0000_0000_1010;  // LDI 10
-        memory[1] = 16'b0010_0000_0000_0101;  // ADDI 5
-        memory[2] = 16'b0011_0000_0000_0011;  // SUBI 3
-        memory[3] = 16'b0100_0000_0000_0000;  // OUT
-        memory[4] = 16'b1111_0000_0000_0000;  // HALT
+        $readmemh("sw/program.hex", memory);
     end
 
     always_comb begin
