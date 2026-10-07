@@ -13,11 +13,12 @@ BUILD := build
 
 RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
             rtl/core.sv rtl/imem.sv rtl/dmem.sv
+RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/soc_top.sv
 
 RISCV       := riscv64-elf-
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
 
-UNITS := alu decoder bht
+UNITS := alu decoder bht uart gpio
 
 .PHONY: test unit integ lint wave clean
 
@@ -28,7 +29,7 @@ unit:
 	@set -e; for u in $(UNITS); do \
 	  echo "----- 编译 tb_$$u -----"; \
 	  $(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_$$u -o tb_$$u --top-module tb_$$u \
-	      $(RTL_CORE) tb/tb_$$u.sv > $(BUILD)/obj_$$u.log 2>&1 || \
+	      $(RTL_SOC) tb/tb_$$u.sv > $(BUILD)/obj_$$u.log 2>&1 || \
 	      { cat $(BUILD)/obj_$$u.log; exit 1; }; \
 	  $(BUILD)/obj_$$u/tb_$$u || exit 1; \
 	done
@@ -56,8 +57,8 @@ integ:
 # ---------------- lint ----------------
 lint:
 	@mkdir -p $(BUILD)
-	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -Wno-MULTITOP --timescale 1ns/1ps \
-	    --top-module core $(RTL_CORE)
+	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME --timescale 1ns/1ps \
+	    --top-module soc_top $(RTL_SOC)
 
 wave: integ
 	@echo "gtkwave $(BUILD)/wave.fst"
