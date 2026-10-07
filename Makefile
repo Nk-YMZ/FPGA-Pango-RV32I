@@ -11,7 +11,11 @@ VFLAGS    := --binary --timing -j 4 -Wall -Wno-DECLFILENAME --timescale 1ns/1ps
 
 BUILD := build
 
-RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv
+RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
+            rtl/core.sv rtl/imem.sv rtl/dmem.sv
+
+RISCV       := riscv64-elf-
+RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
 
 UNITS := alu decoder bht
 
@@ -30,6 +34,21 @@ unit:
 	done
 	@echo "===== 单元测试全部通过 ====="
 
+# ---------------- 核心冒烟测试 ----------------
+smoke: $(BUILD)/test_core_smoke.hex
+	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_core -o tb_core --top-module tb_core \
+	    --trace-fst $(RTL_CORE) tb/tb_core.sv
+	$(BUILD)/obj_core/tb_core +HEX=$(BUILD)/test_core_smoke.hex
+
+# 测试程序：汇编/编译 → objcopy → hex
+$(BUILD)/%.elf: sw/tests/%.S sw/link.ld scripts/bin2hex.py
+	@mkdir -p $(BUILD)
+	$(RISCV)gcc $(RISCV_FLAGS) -T sw/link.ld $< -o $@
+
+$(BUILD)/%.hex: $(BUILD)/%.elf
+	$(RISCV)objcopy -O binary $< $(BUILD)/$*.bin
+	python3 scripts/bin2hex.py $(BUILD)/$*.bin $@
+
 # ---------------- 集成仿真（阶段四补全） ----------------
 integ:
 	@echo "集成仿真尚未实现"
@@ -37,7 +56,8 @@ integ:
 # ---------------- lint ----------------
 lint:
 	@mkdir -p $(BUILD)
-	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -Wno-MULTITOP --timescale 1ns/1ps $(RTL_CORE)
+	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME -Wno-MULTITOP --timescale 1ns/1ps \
+	    --top-module core $(RTL_CORE)
 
 wave: integ
 	@echo "gtkwave $(BUILD)/wave.fst"
