@@ -6,8 +6,13 @@ SECTIONS
 {
   . = 0x00000000;
   .text   : { *(.text.start) *(.text*) }
-  .rodata : { *(.rodata*) }
-  .data   : { *(.data*) }
-  .bss    : { *(.bss*) *(COMMON) }
+  .rodata : { *(.rodata*) *(.srodata*) }
+  .data   : { *(.data*) *(.sdata*) }
+  . = ALIGN(4);
+  _bss_start = .;
+  .bss    : { *(.sbss*) *(.bss*) *(COMMON) }
+  . = ALIGN(4);
+  _bss_end = .;
+  __global_pointer$ = . + 0x800;
   /DISCARD/ : { *(.comment) *(.riscv.attributes) }
 }

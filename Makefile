@@ -50,9 +50,27 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 	$(RISCV)objcopy -O binary $< $(BUILD)/$*.bin
 	python3 scripts/bin2hex.py $(BUILD)/$*.bin $@
 
-# ---------------- 集成仿真（阶段四补全） ----------------
-integ:
-	@echo "集成仿真尚未实现"
+# ---------------- 集成仿真 ----------------
+SOC_TB := $(BUILD)/obj_soc/tb_soc
+HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_fault_illegal.hex \
+            test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
+
+integ: $(SOC_TB) $(HEXES)
+	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d
+	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
+	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4
+	$(SOC_TB) +HEX=$(BUILD)/test_fault_bus.hex +EXPECT=5
+	$(SOC_TB) +HEX=$(BUILD)/test_ebreak.hex +EXPECT=2
+	@echo "===== 集成测试全部通过 ====="
+
+$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv
+	$(VERILATOR) $(VFLAGS) --trace-fst --Mdir $(BUILD)/obj_soc -o tb_soc \
+	    --top-module tb_soc $(RTL_SOC) tb/tb_soc.sv
+
+# C 测试程序：crt0 + main，O2 编译以覆盖更多指令形式
+$(BUILD)/test_isa.elf: sw/tests/test_isa.c sw/crt0.S sw/link.ld
+	@mkdir -p $(BUILD)
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/tests/test_isa.c -o $@
 
 # ---------------- lint ----------------
 lint:
@@ -60,8 +78,9 @@ lint:
 	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME --timescale 1ns/1ps \
 	    --top-module soc_top $(RTL_SOC)
 
-wave: integ
-	@echo "gtkwave $(BUILD)/wave.fst"
+wave: $(SOC_TB) $(BUILD)/test_isa.hex
+	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d +TRACE
+	@echo "gtkwave $(BUILD)/wave_soc.fst"
 
 clean:
 	rm -rf $(BUILD)/*
