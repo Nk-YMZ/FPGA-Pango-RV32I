@@ -14,8 +14,8 @@ rtl/            可综合 RTL（SystemVerilog）
   decoder.sv      RV32I 译码器
   regfile.sv      32×32 寄存器堆
   bht.sv          2-bit 饱和计数器分支历史表
-  imem.sv         指令存储器（64KiB，组合读）
-  dmem.sv         数据存储器（64KiB，组合读、按字节写使能）
+  imem.sv         指令存储器（64KiB，同步读 BRAM，Pango DRM 推断模板）
+  dmem.sv         数据存储器（64KiB，同步读 BRAM + 读写时序状态机）
   uart.sv         UART（8N1，TX 4 字节 FIFO + RX）
   gpio.sv         GPIO（32 位输出 + 输入同步）
   soc_top.sv      SoC 顶层：核心 + 存储器 + 外设 + 地址译码
@@ -36,12 +36,20 @@ build/          全部生成产物（已 gitignore）
 
 - **CPU**：RV32I 基础整数指令集，五级流水线（IF/ID/EX/MEM/WB）。
   - 数据相关：EX 输入从 MEM、WB 两级前递，WB→ID 同拍前递；store 数据在
-    MEM 级从 WB 前递。存储器组合读，load 数据当拍即可前递，**无 load-use 暂停**；
-    唯一暂停来源是数据口 `valid/ready` 握手等待。
+    MEM 级从 WB 前递。load 数据在 MEM 级获得后当拍前递，**无 load-use 暂停**；
+    唯一暂停来源是两个存储器口的等待。
   - 控制相关：BHT 在 ID 级预测条件分支方向并预取 `pc+imm`；EX 级解析真实结果，
     不一致则冲刷 IF/ID 两级并按正确目标重定向。JAL/JALR 不预测，EX 级直接重定向。
     预测失败只冲刷年轻指令，产生重定向的指令本身正常完成（JAL/JALR 写回
     PC+4 不受影响），不会产生错误的寄存器写回、访存或外设副作用。
+- **存储器访问机制**（CPU 与存储器类型解耦，适配片上 BRAM）：
+  - 指令口：同步读 BRAM 时序。核心提前一拍送出下一取指地址
+    （`imem_addr = pc_next`），BRAM 在时钟沿采样地址，下一拍数据与 pc 自然
+    对齐——取指吞吐与分支惩罚均不受同步读影响。`imem_ready` 预留给慢速
+    指令存储器，拉低时全流水线冻结（BRAM 恒 1）。
+  - 数据口：`valid/ready` 握手。BRAM 写 1 拍完成、读 2 拍完成（地址拍 +
+    数据拍），等待期间流水线冻结；UART FIFO 满等外设等待也走同一机制。
+    后续 DDR3 控制器或 Cache 以同一握手接入即可，无需改动核心。
 - **存储结构**：哈佛结构，指令/数据存储器分开；外设挂在数据口上。
 - **停机策略**（本阶段无完整异常/中断体系，以下情况统一停机并给出原因码，
   绝不静默当成正常执行）：
@@ -100,6 +108,8 @@ make wave    # 运行 test_isa 并生成 build/wave_soc.fst
 gtkwave build/wave_soc.fst   # 查看波形
 ```
 
+所有存储器均为同步读 BRAM 模板，可直接被 PDS 推断为盘古系列片上 DRM。
+
 集成测试平台 `tb_soc` 支持 plusargs：`+HEX=<程序.hex>`（必填）、
 `+EXPECT=<停机原因码>`、`+MAGIC=<GPIO 魔数>`、`+TRACE`（出波形）。
 
@@ -120,8 +130,9 @@ gtkwave build/wave_soc.fst   # 查看波形
 
 ## 已知限制
 
-- imem/dmem 为**组合读**（分布式 RAM 风格），上板时应改为同步读 BRAM 并
-  相应调整流水线时序；数据口 `valid/ready` 已为存储器等待预留。
+- 指令口按「地址被接受后下一拍出数」的同步 BRAM 时序设计；多拍不定延迟的
+  指令存储器（如 DDR3 直连取指）需经 Cache/预取包装器接入（项目规划中
+  Cache 本就是后续阶段）。数据口 valid/ready 已支持任意等待拍数。
 - 无 Cache、无异常/中断体系、无 CSR；FENCE/FENCE.I 为 NOP；非对齐访存
   硬件不处理（直接停机），需要时由软件避免。
 - 分支预测只预测条件分支方向（BHT），JAL/JALR 目标不预测（EX 级重定向，

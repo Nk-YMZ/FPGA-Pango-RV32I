@@ -1,15 +1,20 @@
 // 五级流水线 RV32I CPU 核心：IF / ID / EX / MEM / WB
 //
 // 关键设计：
-// - 数据相关：EX 级输入从 MEM、WB 两级前递；存储器为组合读，load 数据在 MEM 级
-//   当拍即可前递给 EX，因此无 load-use 暂停，唯一暂停来源是数据口等待（dmem_ready）。
-// - store 数据在 MEM 级从 WB 前递（处理 load 后紧跟 sw 的情形）。
-// - WB 级写寄存器堆与 ID 级读同拍时，在 ID 级做 WB→ID 前递。
+// - 存储器解耦：指令口/数据口均不感知具体存储器类型。指令口按同步读 BRAM
+//   时序设计——核心提前一拍送出下一取指地址（imem_addr = pc_next），BRAM 在
+//   时钟沿采样地址，下一拍 rdata 与 pc 自然对齐，取指吞吐与分支惩罚均不变；
+//   imem_ready 预留给更慢的指令存储器，拉低时全流水线冻结。数据口为
+//   valid/ready 握手，支持任意等待拍数（UART FIFO 满、BRAM 同步读等均由此
+//   暂停流水线）。
+// - 数据相关：EX 级输入从 MEM、WB 两级前递；store 数据在 MEM 级从 WB 前递；
+//   WB 写与 ID 读同拍时做 WB→ID 前递。load 数据在 MEM 级获得后当拍前递，
+//   无 load-use 暂停；唯一暂停来源是两个存储器口的等待。
 // - 分支预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；EX 级解析真实结果，
 //   不一致则冲刷 IF/ID 并按正确目标重定向。JAL/JALR 不预测，EX 级直接重定向。
-// - 停机策略（本阶段无异常体系）：ECALL/EBREAK/非法指令在 ID 级被发现后停止取指、
-//   排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在 MEM 级
-//   直接停机。停机后所有状态保持，寄存器写回与外设写均被禁止。
+// - 停机策略（本阶段无异常体系）：ECALL/EBREAK/非法指令在 ID 级被发现后停止
+//   取指、排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在
+//   MEM 级直接停机。停机后所有状态保持，寄存器写回与外设写均被禁止。
 `default_nettype none
 
 module core #(
@@ -18,9 +23,10 @@ module core #(
 ) (
   input  wire                  clk,
   input  wire                  rst_n,
-  // 指令口（组合读）
+  // 指令口（同步读 BRAM 时序：addr 提前一拍，rdata 下一拍有效）
   output wire [31:0]           imem_addr,
   input  wire [31:0]           imem_rdata,
+  input  wire                  imem_ready,   // BRAM 恒 1；慢速指令存储器拉低冻结流水线
   // 数据口（valid/ready 握手，支持等待状态）
   output wire                  dmem_valid,
   output wire                  dmem_write,
@@ -41,24 +47,32 @@ module core #(
   localparam logic [31:0] NOP = 32'h0000_0013;  // addi x0, x0, 0
 
   // ================= IF 级 =================
+  // pc 为本拍 BRAM 输出数据对应的指令地址；imem_addr 提前一拍送出下一取指地址，
+  // BRAM 在时钟沿采样后，下一拍 rdata 恰好与 pc 对齐。
   logic [31:0] pc;
   wire  [31:0] instr_f = imem_rdata;
-  assign imem_addr = pc;
 
   logic        id_redirect;
   logic [31:0] id_redirect_target;
   logic        ex_redirect;
   logic [31:0] ex_redirect_target;
-  logic        stall;          // MEM 等待，冻结 IF/ID/EX
+  logic        stall;          // 存储器等待（数据口或指令口），冻结流水线
   logic        draining;       // 停机排干中
   logic        id_halt_accept;
 
+  // 下一取指地址。复位期间固定为 RESET_PC，保证 BRAM 在复位释放沿采到首地址；
+  // 暂停/停机时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
+  wire [31:0] pc_next = !rst_n                  ? RESET_PC :
+                        (stall || draining || halted) ? pc :
+                        ex_redirect             ? ex_redirect_target :
+                        id_redirect             ? id_redirect_target :
+                                                  pc + 32'd4;
+
+  assign imem_addr = pc_next;
+
   always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n)                            pc <= RESET_PC;
-    else if (stall || draining || halted)  pc <= pc;
-    else if (ex_redirect)                  pc <= ex_redirect_target;
-    else if (id_redirect)                  pc <= id_redirect_target;
-    else                                   pc <= pc + 32'd4;
+    if (!rst_n) pc <= RESET_PC;
+    else        pc <= pc_next;
   end
 
   // ================= IF/ID 流水线寄存器 =================
@@ -237,7 +251,7 @@ module core #(
   assign ex_redirect        = is_cti_e && (actual_taken_e != idex_pred_taken)
                               && !draining && !halted;
   assign ex_redirect_target = actual_taken_e ? target_e : idex_pc + 32'd4;
-  assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch;
+  assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch && !stall;
 
   // ================= EX/MEM 流水线寄存器 =================
   // 注意：产生重定向的分支/跳转指令本身正常进入 MEM（JAL/JALR 仍需写回 PC+4），
@@ -278,8 +292,9 @@ module core #(
   assign dmem_write = exmem_ctrl.mem_write;
   assign dmem_addr  = exmem_alu;
 
-  // 存储器等待：valid 置位期间 ready 未就绪则冻结前级
-  assign stall = mem_acc && !dmem_ready && !dmem_err;
+  // 存储器等待：数据口 valid 置位期间 ready 未就绪，或指令口未就绪，冻结流水线
+  wire stall_mem = mem_acc && !dmem_ready && !dmem_err;
+  assign stall = stall_mem || !imem_ready;
 
   // store 数据从 WB 前递（load 后紧跟 sw 的情形）
   wire [31:0] store_data = (memwb_reg_write && memwb_rd != 5'd0 && memwb_rd == exmem_rs2_addr)

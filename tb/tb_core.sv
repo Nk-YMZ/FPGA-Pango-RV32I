@@ -10,6 +10,7 @@ module tb_core;
   logic clk, rst_n;
 
   wire [31:0] imem_addr, imem_rdata;
+  wire        imem_ready;
   wire        dmem_valid, dmem_write, dmem_ready;
   wire [31:0] dmem_addr, dmem_wdata, dmem_rdata;
   wire [3:0]  dmem_wstrb;
@@ -19,17 +20,17 @@ module tb_core;
 
   core core_i (
     .clk(clk), .rst_n(rst_n),
-    .imem_addr(imem_addr), .imem_rdata(imem_rdata),
+    .imem_addr(imem_addr), .imem_rdata(imem_rdata), .imem_ready(imem_ready),
     .dmem_valid(dmem_valid), .dmem_write(dmem_write),
     .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wstrb(dmem_wstrb),
     .dmem_rdata(dmem_rdata), .dmem_ready(dmem_ready), .dmem_err(1'b0),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
 
-  imem imem_i (.addr(imem_addr), .rdata(imem_rdata));
+  imem imem_i (.clk(clk), .addr(imem_addr), .rdata(imem_rdata), .ready(imem_ready));
 
   dmem dmem_i (
-    .clk(clk), .valid(dmem_valid), .write(dmem_write),
+    .clk(clk), .rst_n(rst_n), .valid(dmem_valid), .write(dmem_write),
     .addr(dmem_addr), .wdata(dmem_wdata), .wstrb(dmem_wstrb),
     .rdata(dmem_rdata), .ready(dmem_ready)
   );

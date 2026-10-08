@@ -22,6 +22,7 @@ module soc_top (
 
   // ---- 指令口 ----
   wire [31:0] imem_addr, imem_rdata;
+  wire        imem_ready;
 
   // ---- 数据口（核心侧） ----
   wire        bus_valid, bus_write, bus_ready, bus_err;
@@ -50,17 +51,17 @@ module soc_top (
   // ---- 子模块 ----
   core core_i (
     .clk(clk), .rst_n(rst_n),
-    .imem_addr(imem_addr), .imem_rdata(imem_rdata),
+    .imem_addr(imem_addr), .imem_rdata(imem_rdata), .imem_ready(imem_ready),
     .dmem_valid(bus_valid), .dmem_write(bus_write),
     .dmem_addr(bus_addr), .dmem_wdata(bus_wdata), .dmem_wstrb(bus_wstrb),
     .dmem_rdata(bus_rdata), .dmem_ready(bus_ready), .dmem_err(bus_err),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
 
-  imem imem_i (.addr(imem_addr), .rdata(imem_rdata));
+  imem imem_i (.clk(clk), .addr(imem_addr), .rdata(imem_rdata), .ready(imem_ready));
 
   dmem dmem_i (
-    .clk(clk), .valid(dmem_valid), .write(bus_write),
+    .clk(clk), .rst_n(rst_n), .valid(dmem_valid), .write(bus_write),
     .addr(bus_addr), .wdata(bus_wdata), .wstrb(bus_wstrb),
     .rdata(dmem_rdata), .ready(dmem_ready)
   );
