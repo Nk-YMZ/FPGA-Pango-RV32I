@@ -29,6 +29,7 @@ test: unit smoke integ
 
 # ---------------- 单元测试 ----------------
 unit:
+	@mkdir -p $(BUILD)
 	@set -e; for u in $(UNITS); do \
 	  echo "----- 编译 tb_$$u -----"; \
 	  $(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_$$u -o tb_$$u --top-module tb_$$u \
