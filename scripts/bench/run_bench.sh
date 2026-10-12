@@ -28,8 +28,9 @@ cpi=$(( ticks / iters ))   # 每迭代周期数（越低越好）
 
 # ---- 记录 ----
 commit=$(git rev-parse --short HEAD)
-# dirty 标记覆盖全工作区：移植层、tb、脚本、Makefile 等任何改动都会影响跑分可比性
-dirty=$(git diff --quiet --ignore-submodules || echo "-dirty")
+# dirty 标记覆盖全工作区（含暂存区与未跟踪文件）：任何改动都会影响跑分可比性。
+# 不用 git diff --quiet：它只比工作区与暂存区，漏掉已 add 未提交的改动和未跟踪文件
+dirty=$( [ -z "$(git status --porcelain)" ] || echo "-dirty" )
 date=$(date +%Y-%m-%d)
 if [ ! -f "$CSV" ]; then
   echo "date,commit,iterations,total_cycles,cycles_per_iter" > "$CSV"
