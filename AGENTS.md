@@ -7,7 +7,8 @@
 
 参加 2026 年全国大学生嵌入式芯片与系统设计竞赛，紫光同创 FPGA 创新设计赛道选题一：基于紫光同创 RISCV 指令集 CPU 设计（目标芯片：盘古 50，片上 BRAM 优先，DDR3 暂缓）。
 
-赛题完整验收还涉及上板、CoreMark 跑分、资源与时序及分析报告，由团队后续完成；本仓库的工作重点是 **RTL 设计与仿真验证**。
+赛题验收还涉及 CoreMark 跑分、资源与时序及分析报告等，由团队后续完成；
+本仓库只做 **RTL 设计与仿真验证**，不涉及上板适配。
 
 指令语义以 [RISC-V 官方 RV32I 规范](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html)为准。
 
@@ -38,10 +39,11 @@
 
 1. 装系统包：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`
 2. 克隆本仓库后运行 `bash scripts/setup.sh`（幂等）：检查依赖 → 按固定版本拉取
-   `external/` 外部组件（riscv-arch-test / coremark / sail）→ 用户级安装 mise
+   `external/` 外部组件（riscv-arch-test / coremark / sail / riscv-dv）→ 用户级安装 mise
    及 ACT 框架工具链（ruby/bundler/uv，均在用户目录，不改系统与 shell 配置）→
-   冒烟验证 `make test`
-3. 完成后即可使用全部入口：`make test` / `make act` / `make bench` / `make wave`
+   创建 Pygen Python 环境 `.venv`（uv 拉独立 Python 3.12，不动系统）→
+   冒烟验证 `make test` + 单种子 `make rand`
+3. 完成后即可使用全部入口：`make test` / `make act` / `make rand` / `make bench` / `make wave`
 
 外部组件固定版本：riscv-arch-test `af6485c`（2026-10-11）、coremark `v1.01`、
 sail-riscv `0.15`、riscv-dv `0d71c2b`（2026-09-21）、mise `v2026.10.8`。
@@ -130,16 +132,11 @@ ACT + CoreMark + 随机测试三层均已可用。此后每次迭代严格按以
 - Cache、完整异常/中断体系、M 等其他指令集扩展、AI 加速、BTB/RAS、DDR3 接入等
   属于**后续可选优化项目**。**是否做、何时做、做哪些，一律等用户明确指令**；
   不得自行开工扩大范围，但设计时应保留合理扩展空间。
-- 上板适配（PDS 工程、引脚与时序约束、下载烧录、板级调试与正式 CoreMark 跑分）
-  由团队后续完成，不在本仓库当前范围内。
+- 本项目不涉及上板（PDS 工程、约束、烧录、板级调试等一律不在范围内）。
 
 ## 剩余待办
 
-### 待办 1：上板与正式测评（团队后续，agent 暂不涉及）
-
-PDS 工程、约束、下载调试、板级 CoreMark、资源/时序分析报告。
-
-### 待办 2：可选优化方向（等用户指令，不自行开工）
+### 待办：可选优化方向（等用户指令，不自行开工）
 
 - 性能类：M 扩展（CoreMark 软乘法是大头）、BTB/RAS（跳转目标预测）、
   dmem 读提前到 EX 级（消除 load 第 2 拍）、Cache

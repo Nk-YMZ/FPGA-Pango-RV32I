@@ -91,6 +91,9 @@ echo "  .venv 就绪"
 
 echo "== 5/5 冒烟验证 =="
 make test >/dev/null 2>&1 && echo "  make test 通过" || { echo "  make test 失败，请检查"; exit 1; }
+# 随机测试层链路冒烟（pygen 依赖/Sail/签名比对），单种子小规模快速验证
+RAND_SEEDS=1 RAND_INSTR=500 RAND_JOBS=1 make rand >/dev/null 2>&1 \
+  && echo "  make rand 冒烟通过" || { echo "  make rand 冒烟失败，请检查 build/rand/seed_1/run.log"; exit 1; }
 
 echo ""
 echo "环境就绪。常用入口：make test / make act / make rand / make bench"
