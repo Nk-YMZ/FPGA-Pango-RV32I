@@ -12,7 +12,7 @@
 - ✅ 官方架构合规测试 **riscv-arch-test RV32I 39/39 通过**（Sail 参考模型生成签名）
 - ✅ 自研单元/集成测试全部通过（自动判定，非人工看波形）
 - ✅ **riscv-dv 随机指令测试**：Pygen 生成 + Sail 黄金参考 + 内存签名比对，20 种子全过
-- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 10,283,735 周期（见 `bench/results.csv`）
+- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 10,280,546 周期（见 `bench/results.csv`）
 
 ## 目录
 

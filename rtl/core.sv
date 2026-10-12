@@ -10,9 +10,11 @@
 // - 数据相关：EX 级输入从 MEM、WB 两级前递；store 数据在 MEM 级从 WB 前递；
 //   WB 写与 ID 读同拍时做 WB→ID 前递。load 数据在 MEM 级获得后当拍前递，
 //   无 load-use 暂停；唯一暂停来源是两个存储器口的等待。
-// - 分支/跳转预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；EX 级解析真实
-//   结果，不一致则冲刷 IF/ID 并按正确目标重定向。JAL 目标译码即确定，同样
-//   在 ID 级直接重定向（视为必然预测命中）；JALR 目标依赖寄存器，EX 级重定向。
+// - 分支/跳转预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；JAL 目标译码
+//   即确定，ID 级直接重定向；返回跳转（JALR 且 rs1 为 link 寄存器 x1/x5）
+//   用返回地址栈（RAS）在 ID 级预测目标，调用指令进入 EX 时压栈。EX 级解析
+//   真实结果，不一致则冲刷 IF/ID 按正确目标重定向，并撤销对应 RAS 弹栈恢复
+//   现场；其余 JALR（间接跳转）不预测，EX 级重定向。
 // - 停机策略（本阶段无异常体系）：ECALL/EBREAK/非法指令在 ID 级被发现后停止
 //   取指、排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在
 //   MEM 级直接停机。停机后所有状态保持，寄存器写回与外设写均被禁止。
@@ -20,7 +22,8 @@
 
 module core #(
   parameter [31:0] RESET_PC  = 32'h0000_0000,
-  parameter int    BHT_BITS  = 8               // BHT 索引位数（表项 2^BHT_BITS）
+  parameter int    BHT_BITS  = 8,              // BHT 索引位数（表项 2^BHT_BITS）
+  parameter int    RAS_DEPTH = 16              // 返回地址栈深度
 ) (
   input  wire                  clk,
   input  wire                  rst_n,
@@ -120,10 +123,43 @@ module core #(
     .update_taken  (bht_update_taken)
   );
 
-  // 预测/确定跳转：立即重定向取指，冲刷 IF 级（JAL 目标译码即确定，恒重定向）
-  assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d))
+  // ---- RAS：返回地址栈 ----
+  // link 寄存器按 RISC-V 调用约定取 x1/x5：JAL/JALR 且 rd 为 link 视为调用，
+  // 离开 ID 级时压栈 pc+4；JALR 且 rs1 为 link 视为返回，栈非空时在 ID 级
+  // 以栈顶为预测目标重定向取指并弹栈。压/弹被 ex_redirect 门控：同拍 EX 级
+  // 重定向说明本条在错误路径上，不得动栈；stall 期间指令停在 ID，不得重复操作。
+  wire [31:0] ras_top;
+  wire        ras_empty;
+  wire        ras_undo_pop_e, ras_rewrite_e;
+
+  wire link_rs1_d = (rs1_d == 5'd1) || (rs1_d == 5'd5);
+  wire link_rd_d  = (rd_d  == 5'd1) || (rd_d  == 5'd5);
+  wire call_d        = (ctrl_d.is_jal || ctrl_d.is_jalr) && link_rd_d;
+  wire ret_d         = ctrl_d.is_jalr && link_rs1_d;
+  wire ret_predict_d = ret_d && !ras_empty;
+
+  wire ras_push_d = call_d        && !stall && !ex_redirect && !draining && !halted;
+  wire ras_pop_d  = ret_predict_d && !stall && !ex_redirect && !draining && !halted;
+
+  ras #(.DEPTH(RAS_DEPTH)) ras_i (
+    .clk          (clk),
+    .rst_n        (rst_n),
+    .top          (ras_top),
+    .empty        (ras_empty),
+    .push_en      (ras_push_d),
+    .push_data    (ifid_pc + 32'd4),
+    .pop_en       (ras_pop_d),
+    .undo_pop_en  (ras_undo_pop_e),
+    .rewrite_en   (ras_rewrite_e),
+    .rewrite_data (idex_pred_target)
+  );
+
+  // 预测/确定跳转：立即重定向取指，冲刷 IF 级
+  // （JAL 目标译码即确定；返回跳转以 RAS 栈顶为预测目标）
+  assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
+                               || ret_predict_d)
                               && !draining && !halted && !ex_redirect;
-  assign id_redirect_target = ifid_pc + imm_d;
+  assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
   // 停机请求（被 EX 级重定向杀死时不接受——说明它在错误路径上）
   wire halt_req_d = ctrl_d.is_ecall || ctrl_d.is_ebreak || ctrl_d.illegal;
@@ -163,6 +199,9 @@ module core #(
   logic [31:0] idex_pc, idex_rs1_val, idex_rs2_val, idex_imm;
   logic [4:0]  idex_rs1, idex_rs2, idex_rd;
   logic        idex_pred_taken;
+  logic [31:0] idex_pred_target;  // RAS 预测的返回目标（兼作误预测恢复的旧栈顶）
+  logic        idex_ras_pop;      // 本条在 ID 级弹过栈
+  logic        idex_ras_push;     // 本条进入 EX 时压过栈
   halt_code_t  idex_halt;
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -176,12 +215,17 @@ module core #(
       idex_rs2        <= 5'd0;
       idex_rd         <= 5'd0;
       idex_pred_taken <= 1'b0;
+      idex_pred_target <= 32'd0;
+      idex_ras_pop    <= 1'b0;
+      idex_ras_push   <= 1'b0;
       idex_halt       <= HALT_NONE;
     end else if (stall) begin
       // 保持
     end else if (ex_redirect) begin
       idex_ctrl       <= '0;                // 冲刷为气泡
       idex_pred_taken <= 1'b0;
+      idex_ras_pop    <= 1'b0;
+      idex_ras_push   <= 1'b0;
       idex_halt       <= HALT_NONE;
     end else begin
       // 停机指令进入流水线时不产生任何副作用，仅携带停机原因
@@ -193,8 +237,14 @@ module core #(
       idex_rs1        <= rs1_d;
       idex_rs2        <= rs2_d;
       idex_rd         <= rd_d;
-      // JAL 已在 ID 级重定向，登记为预测跳转，EX 级不再重复重定向
-      idex_pred_taken <= ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d);
+      // JAL 与 RAS 命中的返回已在 ID 级重定向，登记为预测跳转，EX 级不再按
+      // 方向重定向（返回仍需比对预测目标与真实目标）；同时记录 RAS 操作痕迹，
+      // 供 EX 级误预测时撤销弹栈
+      idex_pred_taken  <= ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
+                          || (ret_predict_d && !draining && !halted);
+      idex_pred_target <= ras_top;
+      idex_ras_pop     <= ret_predict_d && !draining && !halted;
+      idex_ras_push    <= ras_push_d;
       idex_halt       <= halt_req_d ? halt_code_d : HALT_NONE;
     end
   end
@@ -243,18 +293,30 @@ module core #(
   wire bht_update_taken = cond_e;
   assign bht_update_en  = idex_ctrl.is_branch && !stall && !halted;
 
-  // 跳转/分支解析：JALR 未做预测，必然重定向；JAL 已在 ID 级重定向（必然命中）；
-  // 条件分支比较预测与实际
+  // 跳转/分支解析：未预测的 JALR（间接跳转）必然重定向；JAL 已在 ID 级重定向
+  // （必然命中）；条件分支比较预测与实际；RAS 命中的返回额外比对预测目标
   wire        actual_taken_e = idex_ctrl.is_jal || idex_ctrl.is_jalr ||
                                (idex_ctrl.is_branch && cond_e);
   wire [31:0] target_e = idex_ctrl.is_jalr ? ((rs1_e + idex_imm) & ~32'd1)
                                            : (idex_pc + idex_imm);
   wire        is_cti_e = idex_ctrl.is_branch || idex_ctrl.is_jal || idex_ctrl.is_jalr;
 
-  assign ex_redirect        = is_cti_e && (actual_taken_e != idex_pred_taken)
+  wire jalr_pred_miss_e = idex_ctrl.is_jalr && idex_pred_taken &&
+                          (target_e != idex_pred_target);
+
+  assign ex_redirect        = ((is_cti_e && (actual_taken_e != idex_pred_taken))
+                               || jalr_pred_miss_e)
                               && !draining && !halted;
   assign ex_redirect_target = actual_taken_e ? target_e : idex_pc + 32'd4;
   assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch && !stall;
+
+  // RAS 恢复：返回预测失误时撤销本条在 ID 级的弹栈。纯弹栈数据未擦除，指针
+  // 回退即可；先弹后压（rd、rs1 同为 link）栈顶槽已被 pc+4 覆盖，写回随流水
+  // 线保存的旧栈顶（idex_pred_target）。stall 期间流水线冻结，恢复与重定向
+  // 同在 stall 解除拍生效，只发生一次
+  wire ras_restore_e = ex_redirect && idex_ctrl.is_jalr && idex_ras_pop && !stall;
+  assign ras_undo_pop_e = ras_restore_e && !idex_ras_push;
+  assign ras_rewrite_e  = ras_restore_e &&  idex_ras_push;
 
   // ================= EX/MEM 流水线寄存器 =================
   // 注意：产生重定向的分支/跳转指令本身正常进入 MEM（JAL/JALR 仍需写回 PC+4），
