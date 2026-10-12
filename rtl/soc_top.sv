@@ -33,6 +33,9 @@ module soc_top #(
   wire        bus_valid, bus_write, bus_ready, bus_err;
   wire [31:0] bus_addr, bus_wdata, bus_rdata;
   wire [3:0]  bus_wstrb;
+  // load 地址预取（核心 EX 级提前一拍送出，仅 dmem 使用；外设握手不变）
+  wire        bus_pf;
+  wire [31:0] bus_pf_addr;
 
   // ---- 地址译码 ----
   wire sel_dmem = (bus_addr < RAM_BYTES);
@@ -63,6 +66,7 @@ module soc_top #(
     .imem_addr(imem_addr), .imem_rdata(imem_rdata), .imem_ready(imem_ready),
     .dmem_valid(bus_valid), .dmem_write(bus_write),
     .dmem_addr(bus_addr), .dmem_wdata(bus_wdata), .dmem_wstrb(bus_wstrb),
+    .dmem_pf(bus_pf), .dmem_pf_addr(bus_pf_addr),
     .dmem_rdata(bus_rdata), .dmem_ready(bus_ready), .dmem_err(bus_err),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
@@ -73,6 +77,7 @@ module soc_top #(
   dmem #(.DEPTH_WORDS(RAM_BYTES / 4)) dmem_i (
     .clk(clk), .rst_n(rst_n), .valid(dmem_valid), .write(bus_write),
     .addr(bus_addr), .wdata(bus_wdata), .wstrb(bus_wstrb),
+    .pf(bus_pf), .pf_addr(bus_pf_addr),
     .rdata(dmem_rdata), .ready(dmem_ready)
   );
 

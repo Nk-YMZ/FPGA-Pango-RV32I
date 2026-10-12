@@ -5,8 +5,11 @@
 //   时序设计——核心提前一拍送出下一取指地址（imem_addr = pc_next），BRAM 在
 //   时钟沿采样地址，下一拍 rdata 与 pc 自然对齐，取指吞吐与分支惩罚均不变；
 //   imem_ready 预留给更慢的指令存储器，拉低时全流水线冻结。数据口为
-//   valid/ready 握手，支持任意等待拍数（UART FIFO 满、BRAM 同步读等均由此
-//   暂停流水线）。
+//   valid/ready 握手，支持任意等待拍数（UART FIFO 满等均由此暂停流水线）；
+//   另设 load 地址预取口（dmem_pf/dmem_pf_addr）：load 的地址在 EX 级已由
+//   ALU 算出，提前一拍送给同步读 BRAM 预采样，预取成功的 load 进入 MEM 级
+//   当拍即可完成（2 拍读缩为 1 拍）；地址线被 MEM 级占用时放弃预取，回退
+//   原有 2 拍路径。预取只影响无副作用的 BRAM 读，外设握手时序不变。
 // - 数据相关：EX 级输入从 MEM、WB 两级前递；store 数据在 MEM 级从 WB 前递；
 //   WB 写与 ID 读同拍时做 WB→ID 前递。load 数据在 MEM 级获得后当拍前递，
 //   无 load-use 暂停；唯一暂停来源是两个存储器口的等待。
@@ -37,6 +40,10 @@ module core #(
   output wire [31:0]           dmem_addr,
   output reg  [31:0]           dmem_wdata,
   output reg  [3:0]            dmem_wstrb,
+  // load 地址预取口（EX 级提前一拍送出，仅供同步读 BRAM 预采样；
+  // 不参与握手，外设可忽略）
+  output wire                  dmem_pf,
+  output wire [31:0]           dmem_pf_addr,
   input  wire [31:0]           dmem_rdata,
   input  wire                  dmem_ready,
   input  wire                  dmem_err,       // 访问未映射地址
@@ -323,6 +330,7 @@ module core #(
   // 只冲刷更年轻的 IF/ID、ID/EX。
   logic [31:0] exmem_alu, exmem_rs2_val, exmem_pc4;
   logic [4:0]  exmem_rs2_addr;
+  logic        exmem_addr_early;   // 本 load 的地址已在 EX 级预取（MEM 当拍可完成）
   halt_code_t  exmem_halt;
 
   always_ff @(posedge clk or negedge rst_n) begin
@@ -333,6 +341,7 @@ module core #(
       exmem_pc4      <= 32'd0;
       exmem_rd       <= 5'd0;
       exmem_rs2_addr <= 5'd0;
+      exmem_addr_early <= 1'b0;
       exmem_halt     <= HALT_NONE;
     end else if (!stall) begin
       exmem_ctrl      <= idex_ctrl;
@@ -341,6 +350,7 @@ module core #(
       exmem_pc4       <= idex_pc + 32'd4;
       exmem_rd        <= idex_rd;
       exmem_rs2_addr  <= idex_rs2;
+      exmem_addr_early <= dmem_pf;   // 预取成功标志随 load 进入 MEM
       exmem_halt      <= idex_halt;
     end
   end
@@ -356,6 +366,14 @@ module core #(
   assign dmem_valid = mem_acc;
   assign dmem_write = exmem_ctrl.mem_write;
   assign dmem_addr  = exmem_alu;
+
+  // load 地址预取：MEM 级占用地址线（store 写拍、外设访问、回退 load 的
+  // 握手期间）时放弃预取；预取成功（dmem_pf）的 load 带 exmem_addr_early
+  // 标志进入 MEM，当拍即可完成。预取只影响无副作用的 BRAM 读采样，
+  // 外设仍以 valid 握手为准，时序不变。
+  wire mem_owns_addr = mem_acc && (exmem_ctrl.mem_write || !exmem_addr_early);
+  assign dmem_pf      = idex_ctrl.mem_read && !mem_owns_addr && !halted;
+  assign dmem_pf_addr = alu_y;
 
   // 存储器等待：数据口 valid 置位期间 ready 未就绪，或指令口未就绪，冻结流水线
   wire stall_mem = mem_acc && !dmem_ready && !dmem_err;

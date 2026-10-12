@@ -14,6 +14,8 @@ module tb_core;
   wire        dmem_valid, dmem_write, dmem_ready;
   wire [31:0] dmem_addr, dmem_wdata, dmem_rdata;
   wire [3:0]  dmem_wstrb;
+  wire        dmem_pf;
+  wire [31:0] dmem_pf_addr;
   wire        halted;
   halt_code_t halt_code;
   wire        dbg_mispredict;
@@ -23,6 +25,7 @@ module tb_core;
     .imem_addr(imem_addr), .imem_rdata(imem_rdata), .imem_ready(imem_ready),
     .dmem_valid(dmem_valid), .dmem_write(dmem_write),
     .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wstrb(dmem_wstrb),
+    .dmem_pf(dmem_pf), .dmem_pf_addr(dmem_pf_addr),
     .dmem_rdata(dmem_rdata), .dmem_ready(dmem_ready), .dmem_err(1'b0),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
@@ -32,6 +35,7 @@ module tb_core;
   dmem dmem_i (
     .clk(clk), .rst_n(rst_n), .valid(dmem_valid), .write(dmem_write),
     .addr(dmem_addr), .wdata(dmem_wdata), .wstrb(dmem_wstrb),
+    .pf(dmem_pf), .pf_addr(dmem_pf_addr),
     .rdata(dmem_rdata), .ready(dmem_ready)
   );
 
