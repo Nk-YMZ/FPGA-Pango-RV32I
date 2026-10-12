@@ -30,7 +30,7 @@ build/     生成产物（gitignore）
 ## 使用
 
 ```bash
-make test    # 自研单元 + 集成测试
+make test    # 自研单元 + 核心冒烟 + 集成测试
 make act     # 官方 ISA 合规测试（39 项）
 make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make bench   # CoreMark 跑分（周期数，逐次可比）

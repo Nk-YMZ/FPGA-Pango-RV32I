@@ -5,12 +5,24 @@ set -u
 cd "$(dirname "$0")/../.."   # 仓库根目录
 
 ELFS_DIR=external/riscv-arch-test/work/pango-rv32i/elfs
+EXPECT_COUNT=39   # RV32I 全套 39 项；ACT 版本变更导致数量变化时须同步更新
 TB=build/obj_soc/tb_soc
 LOG_DIR=build/act_logs
 mkdir -p "$LOG_DIR"
 
+# 防空转：act-build 未产出或目录路径漂移时，循环会一次都不执行而误判全绿
+mapfile -t ELFS < <(find "$ELFS_DIR" -name '*.elf' 2>/dev/null | sort)
+if [ ${#ELFS[@]} -eq 0 ]; then
+  echo "ACT 错误: $ELFS_DIR 下没有任何 ELF（act-build 未产出或路径已变）" >&2
+  exit 1
+fi
+if [ ${#ELFS[@]} -ne $EXPECT_COUNT ]; then
+  echo "ACT 错误: ELF 数量 ${#ELFS[@]} 与预期 $EXPECT_COUNT 不符，请核对测试集是否完整" >&2
+  exit 1
+fi
+
 pass=0; fail=0; failed=()
-while IFS= read -r elf; do
+for elf in "${ELFS[@]}"; do
   name=$(basename "$elf" .elf)
   riscv64-elf-objcopy -O binary "$elf" build/act_tmp.bin
   python3 scripts/bin2hex.py build/act_tmp.bin build/act_tmp.hex
@@ -21,7 +33,7 @@ while IFS= read -r elf; do
   else
     fail=$((fail+1)); failed+=("$name"); echo "  FAIL  $name（日志 $LOG_DIR/$name.log）"
   fi
-done < <(find "$ELFS_DIR" -name '*.elf' | sort)
+done
 
 echo "----------------------------------------"
 echo "ACT RV32I: $pass 通过, $fail 失败, 共 $((pass+fail)) 项"

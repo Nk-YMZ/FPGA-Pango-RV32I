@@ -10,7 +10,7 @@
 #   3. 用户级安装 mise（~/.local/bin/mise，独立二进制），并安装 ACT 框架所需的
 #      ruby/bundler/uv（~/.local/share/mise，由仓库 .mise.toml 驱动）
 #   4. 创建项目 Python 虚拟环境 .venv（riscv-dv Pygen 依赖，Python 3.12，不动系统）
-#   5. 冒烟验证 make test
+#   5. 冒烟验证 make test + 单种子小规模 make rand
 set -euo pipefail
 cd "$(dirname "$0")/.."   # 仓库根目录
 
@@ -39,16 +39,28 @@ if [ ! -d external/riscv-arch-test ]; then
   git -C external/riscv-arch-test checkout -q "$ARCHTEST_COMMIT"
   echo "  riscv-arch-test @ $ARCHTEST_COMMIT"
 else
-  echo "  riscv-arch-test 已存在（$(git -C external/riscv-arch-test rev-parse --short HEAD)）"
+  cur=$(git -C external/riscv-arch-test rev-parse HEAD 2>/dev/null || echo "未知")
+  if [ "$cur" = "$ARCHTEST_COMMIT" ]; then
+    echo "  riscv-arch-test 已存在，版本正确"
+  else
+    echo "  警告: riscv-arch-test 版本不符（当前 $cur，固定 $ARCHTEST_COMMIT），不自动重置，请人工核对" >&2
+  fi
 fi
 
 if [ ! -d external/coremark ]; then
   git clone --depth 1 --branch "$COREMARK_TAG" https://github.com/eembc/coremark.git external/coremark
   echo "  coremark @ $COREMARK_TAG"
 else
-  echo "  coremark 已存在"
+  cur=$(git -C external/coremark rev-parse HEAD 2>/dev/null || echo "")
+  want=$(git -C external/coremark rev-parse "$COREMARK_TAG^{commit}" 2>/dev/null || echo "")
+  if [ -n "$cur" ] && [ "$cur" = "$want" ]; then
+    echo "  coremark 已存在，版本正确（$COREMARK_TAG）"
+  else
+    echo "  警告: coremark 版本无法确认与 $COREMARK_TAG 一致，不自动重置，请人工核对" >&2
+  fi
 fi
 
+# 注：上游未提供 sha256，二进制无校验和验证；如需更严格可自行补充比对
 if [ ! -x external/tools/bin/sail_riscv_sim ]; then
   mkdir -p external/tools
   curl -sL "https://github.com/riscv/sail-riscv/releases/download/$SAIL_VER/sail-riscv-Linux-x86_64.tar.gz" \
@@ -63,7 +75,12 @@ if [ ! -d external/riscv-dv ]; then
   git -C external/riscv-dv checkout -q "$RISCV_DV_COMMIT"
   echo "  riscv-dv @ $RISCV_DV_COMMIT"
 else
-  echo "  riscv-dv 已存在（$(git -C external/riscv-dv rev-parse --short HEAD)）"
+  cur=$(git -C external/riscv-dv rev-parse HEAD 2>/dev/null || echo "未知")
+  if [ "$cur" = "$RISCV_DV_COMMIT" ]; then
+    echo "  riscv-dv 已存在，版本正确"
+  else
+    echo "  警告: riscv-dv 版本不符（当前 $cur，固定 $RISCV_DV_COMMIT），不自动重置，请人工核对" >&2
+  fi
 fi
 
 echo "== 3/5 安装 mise 与 ACT 框架工具链（用户级） =="

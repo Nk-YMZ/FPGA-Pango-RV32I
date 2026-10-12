@@ -84,6 +84,8 @@ module tb_soc;
   end
 
   // ---- UART RX 激励：复位结束后发送 0xA5 ----
+  // 注意：全局激励，对所有程序生效（test_isa 依赖它验证 RX 路径）；
+  // 新增测试若在早期读 UART，需知晓会收到这一固定字节
   initial begin : rx_driver
     logic [7:0] b;
     b = 8'hA5;
@@ -99,6 +101,7 @@ module tb_soc;
     string hex;
     int    expect_code;
     int    magic;
+    bit    magic_en;
     int    timeout_cycles;
     int    errors;
 
@@ -108,12 +111,16 @@ module tb_soc;
 
     if (!$value$plusargs("HEX=%s", hex)) hex = "build/test_isa.hex";
     if (!$value$plusargs("EXPECT=%d", expect_code)) expect_code = 1;
-    if (!$value$plusargs("MAGIC=%h", magic)) magic = -1;
+    // MAGIC 以"是否传参"为校验开关而非哨兵值：魔数恰为 0xFFFFFFFF 也能正常校验
+    magic = 0;
+    magic_en = $value$plusargs("MAGIC=%h", magic);
     tohost_addr = 0;
     act_done = 0;
     act_tohost = 0;
     running = 0;
     $value$plusargs("TOHOST=%h", tohost_addr);
+    // 默认 200 万周期：适配当前测试规模（万条随机指令约数万周期）；
+    // CoreMark 由 run_bench.sh 显式传 +TIMEOUT=100000000，规模变更时两处需同步
     if (!$value$plusargs("TIMEOUT=%d", timeout_cycles)) timeout_cycles = 2000000;
     // 签名转储区间（不给出 SIGFILE 则不转储）
     sig_start = 0; sig_end = 0;
@@ -176,7 +183,7 @@ module tb_soc;
         errors++;
         $display("FAIL: 停机原因码 %0d，期望 %0d", halt_code, expect_code);
       end
-      if (magic >= 0 && gpio_out !== 32'(magic)) begin
+      if (magic_en && gpio_out !== 32'(magic)) begin
         errors++;
         $display("FAIL: gpio_out=%h，期望 %h", gpio_out, magic);
       end

@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/../.."   # 仓库根目录
 
-SEEDS=${@:-$RAND_SEEDS}              # 命令行种子列表优先，否则用环境变量
+SEEDS=${@:-${RAND_SEEDS:-}}       # 命令行种子列表优先，否则用环境变量
 JOBS=${RAND_JOBS:-$(nproc)}
 TB=build/obj_soc/tb_soc
 

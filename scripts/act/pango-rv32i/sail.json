@@ -1,6 +1,17 @@
-// Sail reference-model configuration for PicoRV32 (picorv32_axi, RV32IMC).
+// Sail 0.15 参考模型配置：pango-rv32i（本仓库五级流水线核心，纯 RV32I）
+// 衍生自 Sail 官方 PicoRV32 示例配置（picorv32_axi, RV32IMC），保留原版权：
 // Copyright (c) 2026, Harvey Mudd College
 // SPDX-License-Identifier: Apache-2.0
+// 已按本核心实际架构修正扩展声明（M / Zmmul / Zca 均改为不支持）。
+//
+// 与本核心仍有意保留的差异（当前测试不触及；做 M 扩展或异常体系迭代前须重估）：
+// 1. 非对齐访存：本核心直接停机（无陷阱体系），此处仍为 AlignmentException——
+//    Sail 没有"停机"语义可配；UDB 声明 MISALIGNED_LDST=false，测试不会产生
+//    非对齐访问，该配置实际不被触发。
+// 2. dtb_address=0x1000 与 CLINT/IO 区布局是 Sail 平台与 ACT 框架的要求，
+//    与本 SoC 外设映射（0x1000_0000 起）无关；框架不传 DTB，该地址不会被写，
+//    仅 Sail 启动时把 a1 初始化为该值（随机测试已在生成侧初始化全部寄存器）。
+// 正文中其余 "PicoRV32" 注释为衍生来源的说明文字，所述"无 CSR"等事实同样适用于本核心。
 {
   "$schema": "https://github.com/riscv/sail-riscv/releases/download/0.15/sail_riscv_config_schema.json",
   "base": {
@@ -202,11 +213,9 @@
     // checked before address translation. `misaligned_exceptions` in
     // `regions` is checked after address translation.
     "misaligned": {
-      // PicoRV32 is built with CATCH_MISALIGN=1, which halts the core on any
-      // misaligned load, store or fetch. Quote: "CATCH_MISALIGN ... Set this to 0
-      // to disable the circuitry for catching misaligned memory accesses."
-      // https://github.com/YosysHQ/picorv32/blob/ef203c2b0a3fb793280f5114941416c425c5b461/README.md
-      // RTL: https://github.com/YosysHQ/picorv32/blob/ef203c2b0a3fb793280f5114941416c425c5b461/picorv32.v#L1922-L1944
+      // 本核心对任何非对齐 load/store/fetch 直接停机（无陷阱体系，见 rtl/core.sv）。
+      // Sail 没有"停机"语义可配，保留 AlignmentException 作为最接近的配置；
+      // 测试不产生非对齐访问（UDB: MISALIGNED_LDST=false），此项实际不被触发。
       "exceptions": {
         "load_store": { "Some": "AlignmentException" },
         "vector": { "None": null },
@@ -217,14 +226,15 @@
       "byte_by_byte": false,
       "order_decreasing": false
     },
-    // Address to write DTB to (if provided).
+    // Address to write DTB to (if provided). 框架不传 DTB；仅启动时 a1 被置为该值。
     "dtb_address": {
       "len": 64,
       "value": "0x1000"
     },
     "regions": [
       // Main memory: code and data. Tests link from 0, the reset address (see link.ld).
-      // Size matches the 8 MB picorv32 testbench array (see install-picorv32.sh).
+      // 8 MiB 大于 tb_soc 仿真 RAM（1 MiB）：差异方向为"错必现"（RTL 越界即停机，
+      // 签名必然不一致），且 ACT/随机测试映像均有 1 MiB 内 ASSERT，不受影响。
       {
         "base": {
           "len": 64,
@@ -243,7 +253,7 @@
           "writable": true,
           "read_idempotent": true,
           "write_idempotent": true,
-          // CATCH_MISALIGN=1: misaligned accesses raise an alignment exception.
+          // 同上：非对齐访问配为 alignment exception（不被触发，见上方说明）。
           "misaligned_exceptions": {
             "load_store": { "Some": "AlignmentException" },
             "vector": { "None": null },
@@ -379,7 +389,7 @@
   "extensions": {
     "M": {
       "mutable_misa": false,
-      "supported": true
+      "supported": false   // 本核心为纯 RV32I，无乘除法硬件
     },
     "A": {
       "mutable_misa": false,
@@ -580,7 +590,7 @@
       "supported": false
     },
     "Zmmul": {
-      "supported": true
+      "supported": false
     },
     "Zaamo": {
       "supported": false
@@ -625,7 +635,7 @@
       "supported": false
     },
     "Zca": {
-      "supported": true
+      "supported": false
     },
     "Zcf": {
       "supported": false

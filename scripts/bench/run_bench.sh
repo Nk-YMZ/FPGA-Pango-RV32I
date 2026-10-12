@@ -12,6 +12,8 @@ LOG=$CM_OUT/run.log
 # ---- 运行 ----
 riscv64-elf-objcopy -O binary "$CM_OUT/coremark.elf" "$CM_OUT/coremark.bin"
 python3 scripts/bin2hex.py "$CM_OUT/coremark.bin" "$CM_OUT/coremark.hex"
+# 超时 1 亿周期：当前基线 10 迭代约 1031 万周期，留约 10 倍余量；
+# 加大 CM_ITER 或核心显著变慢时需同步放大
 build/obj_soc/tb_soc "+HEX=$CM_OUT/coremark.hex" +EXPECT=1 +TIMEOUT=100000000 > "$LOG" 2>&1
 
 # ---- 校验与解析 ----
@@ -26,7 +28,8 @@ cpi=$(( ticks / iters ))   # 每迭代周期数（越低越好）
 
 # ---- 记录 ----
 commit=$(git rev-parse --short HEAD)
-dirty=$(git diff --quiet --ignore-submodules -- rtl/ sw/ || echo "-dirty")
+# dirty 标记覆盖全工作区：移植层、tb、脚本、Makefile 等任何改动都会影响跑分可比性
+dirty=$(git diff --quiet --ignore-submodules || echo "-dirty")
 date=$(date +%Y-%m-%d)
 if [ ! -f "$CSV" ]; then
   echo "date,commit,iterations,total_cycles,cycles_per_iter" > "$CSV"

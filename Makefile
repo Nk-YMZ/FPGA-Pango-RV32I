@@ -1,8 +1,9 @@
 # 紫光同创 RISC-V CPU —— 统一构建与测试入口
 # 用法：
 #   make unit    运行模块级单元测试
-#   make integ   编译测试程序并运行 SoC 集成仿真（阶段四实现）
-#   make test    全部测试
+#   make smoke   核心冒烟测试（含在 make test 中）
+#   make integ   编译测试程序并运行 SoC 集成仿真
+#   make test    全部自研测试（单元 + 冒烟 + 集成）
 #   make lint    Verilator lint
 #   make wave    带波形运行集成测试（生成 build/*.fst，可用 gtkwave 查看）
 
@@ -20,9 +21,11 @@ RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
 
 UNITS := alu decoder bht uart gpio
 
-.PHONY: test unit integ lint wave clean
+# 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
+# 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand
 
-test: unit integ
+test: unit smoke integ
 
 # ---------------- 单元测试 ----------------
 unit:

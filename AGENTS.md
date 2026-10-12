@@ -77,7 +77,9 @@ sail-riscv `0.15`、riscv-dv `0d71c2b`（2026-09-21）、mise `v2026.10.8`。
 （commit af6485c，2026-10-11）、coremark（v1.01）、sail-riscv 0.15（external/tools/bin）。
 ACT 框架的 Python/Ruby 依赖由 mise 管理（`~/.local/bin/mise`，驱动 uv/ruby/bundler，
 不改系统、不碰 shell 配置）。我们的 ACT 适配层在 `scripts/act/pango-rv32i/`
-（UDB 配置、链接脚本、rvmodel 宏）。
+（UDB 配置、Sail 参考模型配置、链接脚本、rvmodel 宏）。Sail 配置（sail.json）
+已按实际架构修正为纯 RV32I（无 M/C 声明）；仍有意保留的非对齐陷阱语义与
+dtb 地址差异及其兜底理由见该文件头注释。
 
 ## 迭代工作流程
 
