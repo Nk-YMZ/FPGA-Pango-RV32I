@@ -10,8 +10,9 @@
 // - 数据相关：EX 级输入从 MEM、WB 两级前递；store 数据在 MEM 级从 WB 前递；
 //   WB 写与 ID 读同拍时做 WB→ID 前递。load 数据在 MEM 级获得后当拍前递，
 //   无 load-use 暂停；唯一暂停来源是两个存储器口的等待。
-// - 分支预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；EX 级解析真实结果，
-//   不一致则冲刷 IF/ID 并按正确目标重定向。JAL/JALR 不预测，EX 级直接重定向。
+// - 分支/跳转预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；EX 级解析真实
+//   结果，不一致则冲刷 IF/ID 并按正确目标重定向。JAL 目标译码即确定，同样
+//   在 ID 级直接重定向（视为必然预测命中）；JALR 目标依赖寄存器，EX 级重定向。
 // - 停机策略（本阶段无异常体系）：ECALL/EBREAK/非法指令在 ID 级被发现后停止
 //   取指、排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在
 //   MEM 级直接停机。停机后所有状态保持，寄存器写回与外设写均被禁止。
@@ -119,8 +120,8 @@ module core #(
     .update_taken  (bht_update_taken)
   );
 
-  // 预测跳转：立即重定向取指，冲刷 IF 级
-  assign id_redirect        = ctrl_d.is_branch && predict_taken_d
+  // 预测/确定跳转：立即重定向取指，冲刷 IF 级（JAL 目标译码即确定，恒重定向）
+  assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d))
                               && !draining && !halted && !ex_redirect;
   assign id_redirect_target = ifid_pc + imm_d;
 
@@ -192,7 +193,8 @@ module core #(
       idex_rs1        <= rs1_d;
       idex_rs2        <= rs2_d;
       idex_rd         <= rd_d;
-      idex_pred_taken <= ctrl_d.is_branch && predict_taken_d;
+      // JAL 已在 ID 级重定向，登记为预测跳转，EX 级不再重复重定向
+      idex_pred_taken <= ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d);
       idex_halt       <= halt_req_d ? halt_code_d : HALT_NONE;
     end
   end
@@ -241,7 +243,8 @@ module core #(
   wire bht_update_taken = cond_e;
   assign bht_update_en  = idex_ctrl.is_branch && !stall && !halted;
 
-  // 跳转/分支解析：JAL/JALR 未做预测，必然重定向；条件分支比较预测与实际
+  // 跳转/分支解析：JALR 未做预测，必然重定向；JAL 已在 ID 级重定向（必然命中）；
+  // 条件分支比较预测与实际
   wire        actual_taken_e = idex_ctrl.is_jal || idex_ctrl.is_jalr ||
                                (idex_ctrl.is_branch && cond_e);
   wire [31:0] target_e = idex_ctrl.is_jalr ? ((rs1_e + idex_imm) & ~32'd1)
