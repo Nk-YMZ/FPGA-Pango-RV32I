@@ -1,4 +1,4 @@
-# Pygen target 配置：pango-rv32i（本仓库五级流水线 RV32I 核心）
+# Pygen target 配置：pango-rv32i（本仓库五级流水线 RV32IM 核心）
 # 基于上游 pygen/pygen_src/target/rv32i/riscv_core_setting.py 裁剪：
 # - 无特权架构（无 CSR、无陷阱），bare_program_mode 下本文件大部分特权字段不参与生成
 # - 不支持非对齐访存（硬件停机），禁止生成非对齐 load/store
@@ -39,8 +39,8 @@ unsupported_instr = [
     riscv_instr_name_t.CSRRCI,
 ]
 
-# 仅 RV32I
-supported_isa = [riscv_instr_group_t.RV32I]
+# RV32IM
+supported_isa = [riscv_instr_group_t.RV32I, riscv_instr_group_t.RV32M]
 
 # 中断模式（不参与生成，bare 模式无陷阱）
 supported_interrupt_mode = [mtvec_mode_t.DIRECT]

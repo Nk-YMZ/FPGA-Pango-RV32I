@@ -1,4 +1,4 @@
-# ACT 框架配置：pango-rv32i（本仓库五级流水线 RV32I 核心）
+# ACT 框架配置：pango-rv32i（本仓库五级流水线 RV32IM 核心）
 # 参考模型为官方 Sail 0.15（external/tools/bin 提供，加入 PATH 后由框架调用）
 name: pango-rv32i
 compiler_exe: riscv64-elf-gcc

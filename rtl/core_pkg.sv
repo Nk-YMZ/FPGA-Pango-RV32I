@@ -55,7 +55,8 @@ package core_pkg;
     logic       is_branch;   // 条件分支
     logic       is_jal;
     logic       is_jalr;
-    logic [2:0] funct3;      // 条件分支的比较类型
+    logic [2:0] funct3;      // 条件分支的比较类型 / 乘除法子操作（复用同一位段）
+    logic       is_muldiv;   // RV32M 乘除法（交 EX 级多周期单元，funct3 选子操作）
     logic       is_ecall;
     logic       is_ebreak;
     logic       illegal;

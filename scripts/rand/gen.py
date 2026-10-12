@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # riscv-dv Pygen 生成驱动：pango-rv32i 适配层
 #
-# 作用：调用上游 pygen（external/riscv-dv）生成单个 RV32I 随机程序。
+# 作用：调用上游 pygen（external/riscv-dv）生成单个 RV32IM 随机程序。
 # 与上游的差异全部收敛在本文件与 target/pango_rv32i/ 中，不改 external/ 源码：
 #
 # 1. imp shim：pygen 的 riscv_instr.py 仍使用 Python 3.12 已移除的 imp.reload
@@ -152,6 +152,19 @@ def main():
     random.seed(own["seed"])
     cfg.randomize()
     riscv_instr.create_instr_list(cfg)
+
+    # 上游 quirk 修正：rv32m_instr.py 把 REMU 误分类为 LOAD（疑为复制粘贴），
+    # 导致其不进 basic_instr、随机流永不抽取（只会混进 load/store 定向流，
+    # 而它没有地址操作数）。此处挪回 ARITHMETIC，恢复随机覆盖。
+    from pygen_src.riscv_instr_pkg import riscv_instr_name_t, riscv_instr_category_t
+    _remu = riscv_instr_name_t.REMU
+    if _remu in riscv_instr.instr_template:
+        riscv_instr.instr_template[_remu].category = riscv_instr_category_t.ARITHMETIC
+        if _remu in riscv_instr.instr_category["LOAD"]:
+            riscv_instr.instr_category["LOAD"].remove(_remu)
+            riscv_instr.instr_category["ARITHMETIC"].append(_remu)
+            riscv_instr.basic_instr.append(_remu)
+
     asm = pango_asm_program_gen()
     asm.get_directed_instr_stream()
     asm.gen_program()

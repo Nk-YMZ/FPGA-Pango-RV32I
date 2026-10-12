@@ -23,7 +23,7 @@ echo FAIL > "$dir/status"   # 默认失败，全流程走完后才置 PASS
   "$PY" scripts/rand/gen.py --seed "$seed" --instr_cnt "$INSTR" --out "$dir/rand.S" || exit 1
 
   echo "== seed $seed: 汇编链接 =="
-  riscv64-elf-gcc -march=rv32i -mabi=ilp32 -mno-relax -nostdlib -nostartfiles \
+  riscv64-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -nostdlib -nostartfiles \
       -T "$LINK_LD" "$dir/rand.S" -o "$dir/rand.elf" || exit 1
   riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin"
   python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex"

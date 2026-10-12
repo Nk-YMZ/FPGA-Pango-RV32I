@@ -1,15 +1,18 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/riscv/riscv-unified-db/main/spec/schemas/config_schema.json
 # UDB 架构配置：pango-rv32i 五级流水线核心
-# 纯 RV32I（I 2.1），无 CSR、无陷阱体系（ecall/ebreak/非法指令一律停机而非陷入），
+# RV32IM（I 2.1 + M 2.0），无 CSR、无陷阱体系（ecall/ebreak/非法指令一律停机而非陷入），
 # 参数写法参照官方仓库中同为"无 CSR"的 picorv32 配置。
 ---
 $schema: config_schema.json#
 kind: architecture configuration
 type: fully configured
 name: pango-rv32i
-description: 紫光同创赛道 RV32I 五级流水线 CPU（无特权架构，哈佛结构，片上 BRAM）
+description: 紫光同创赛道 RV32IM 五级流水线 CPU（无特权架构，哈佛结构，片上 BRAM）
 implemented_extensions:
   - { name: I, version: "= 2.1" }
+  - { name: M, version: "= 2.0" }
+  # UDB 中 M 依赖 Zmmul（乘法子集），须一并声明
+  - { name: Zmmul, version: "= 1.0.0" }
   # UDB 要求至少声明 Sm 才存在以下参数；本核心无任何 CSR，由参数如实描述
   - { name: Sm, version: "= 1.11.0" }
 
@@ -19,6 +22,7 @@ params:
   M_MODE_ENDIANNESS: little
 
   MISA_CSR_IMPLEMENTED: false
+  MUTABLE_MISA_M: false
   NON_STANDARD_EXTENSION_IMPLEMENTED: false
 
   # 无陷阱体系：任何异常条件都直接停机，不产生陷入

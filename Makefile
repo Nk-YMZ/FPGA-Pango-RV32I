@@ -12,14 +12,14 @@ VFLAGS    := --binary --timing -j 4 -Wall -Wno-DECLFILENAME --timescale 1ns/1ps
 
 BUILD := build
 
-RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
+RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
             rtl/ras.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv
 RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/soc_top.sv
 
 RISCV       := riscv64-elf-
-RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
+RISCV_FLAGS := -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles
 
-UNITS := alu decoder bht ras uart gpio
+UNITS := alu muldiv decoder bht ras uart gpio
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
@@ -56,11 +56,12 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 
 # ---------------- 集成仿真 ----------------
 SOC_TB := $(BUILD)/obj_soc/tb_soc
-HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_fault_illegal.hex \
+HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_fault_illegal.hex \
             test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
 
 integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d
+	$(SOC_TB) +HEX=$(BUILD)/test_muldiv.hex +EXPECT=1 +MAGIC=0000900d
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_bus.hex +EXPECT=5
@@ -84,7 +85,7 @@ ACT_ENV    := PATH="$(HOME)/.local/bin:$(abspath external/tools/bin):$$PATH"
 # 生成自检 ELF（框架在 ACT 仓库内运行，uv/ruby 由 mise 提供）
 act-build:
 	cd $(ACT_DIR) && $(ACT_ENV) mise exec -- make elfs \
-	    CONFIG_FILES=$(ACT_CONFIG) EXTENSIONS=I FAST=True
+	    CONFIG_FILES=$(ACT_CONFIG) EXTENSIONS=I,M FAST=True
 
 # 构建仿真器 + 生成 ELF + 运行全部测试
 act: $(SOC_TB) act-build
@@ -106,7 +107,7 @@ bench: $(SOC_TB)
 	bash scripts/bench/run_bench.sh $(CM_ITER)
 
 # ---------------- riscv-dv 随机指令测试 ----------------
-# Pygen 生成 RV32I 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名
+# Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名
 RAND_SEEDS ?= $(shell seq 1 20)
 RAND_INSTR ?= 10000
 

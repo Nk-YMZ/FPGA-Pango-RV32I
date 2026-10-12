@@ -1,6 +1,8 @@
-// 五级流水线 RV32I CPU 核心：IF / ID / EX / MEM / WB
+// 五级流水线 RV32IM CPU 核心：IF / ID / EX / MEM / WB
 //
 // 关键设计：
+// - RV32M 乘除法：EX 级多周期单元（乘法两级寄存、除法 radix-2 迭代），
+//   等待期间部分停顿（冻结 IF/ID/EX，MEM/WB 照常推进），详见 EX 级注释。
 // - 存储器解耦：指令口/数据口均不感知具体存储器类型。指令口按同步读 BRAM
 //   时序设计——核心提前一拍送出下一取指地址（imem_addr = pc_next），BRAM 在
 //   时钟沿采样地址，下一拍 rdata 与 pc 自然对齐，取指吞吐与分支惩罚均不变；
@@ -68,13 +70,15 @@ module core #(
   logic        ex_redirect;
   logic [31:0] ex_redirect_target;
   logic        stall;          // 存储器等待（数据口或指令口），冻结流水线
+  logic        muldiv_stall;   // 乘除指令在 EX 级等待多周期单元完成
+  logic        stall_young;    // stall || muldiv_stall：冻结 IF/ID/EX 三级
   logic        draining;       // 停机排干中
   logic        id_halt_accept;
 
   // 下一取指地址。复位期间固定为 RESET_PC，保证 BRAM 在复位释放沿采到首地址；
   // 暂停/停机时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
   wire [31:0] pc_next = !rst_n                  ? RESET_PC :
-                        (stall || draining || halted) ? pc :
+                        (stall_young || draining || halted) ? pc :
                         ex_redirect             ? ex_redirect_target :
                         id_redirect             ? id_redirect_target :
                                                   pc + 32'd4;
@@ -93,7 +97,7 @@ module core #(
     if (!rst_n) begin
       ifid_pc    <= 32'd0;
       ifid_instr <= NOP;
-    end else if (stall) begin
+    end else if (stall_young) begin
       // 保持
     end else if (ex_redirect || id_redirect || id_halt_accept || draining) begin
       ifid_instr <= NOP;                    // 冲刷 / 停机后停止取指
@@ -145,8 +149,8 @@ module core #(
   wire ret_d         = ctrl_d.is_jalr && link_rs1_d;
   wire ret_predict_d = ret_d && !ras_empty;
 
-  wire ras_push_d = call_d        && !stall && !ex_redirect && !draining && !halted;
-  wire ras_pop_d  = ret_predict_d && !stall && !ex_redirect && !draining && !halted;
+  wire ras_push_d = call_d        && !stall_young && !ex_redirect && !draining && !halted;
+  wire ras_pop_d  = ret_predict_d && !stall_young && !ex_redirect && !draining && !halted;
 
   ras #(.DEPTH(RAS_DEPTH)) ras_i (
     .clk          (clk),
@@ -170,7 +174,7 @@ module core #(
 
   // 停机请求（被 EX 级重定向杀死时不接受——说明它在错误路径上）
   wire halt_req_d = ctrl_d.is_ecall || ctrl_d.is_ebreak || ctrl_d.illegal;
-  assign id_halt_accept = halt_req_d && !ex_redirect && !stall;
+  assign id_halt_accept = halt_req_d && !ex_redirect && !stall_young;
 
   halt_code_t halt_code_d;
   always_comb begin
@@ -226,7 +230,7 @@ module core #(
       idex_ras_pop    <= 1'b0;
       idex_ras_push   <= 1'b0;
       idex_halt       <= HALT_NONE;
-    end else if (stall) begin
+    end else if (stall_young) begin
       // 保持
     end else if (ex_redirect) begin
       idex_ctrl       <= '0;                // 冲刷为气泡
@@ -282,6 +286,36 @@ module core #(
   wire [31:0] alu_y;
 
   alu alu_i (.op(idex_ctrl.alu_op), .a(alu_a), .b(alu_b), .y(alu_y));
+
+  // ---- RV32M 乘除法单元（多周期，start/busy/done 握手）----
+  // 乘除指令在 EX 级等待完成期间采用部分停顿：冻结 IF/ID/EX 三级，
+  // EX/MEM 注入气泡，MEM/WB 照常推进——年长访存的握手独立完成，不受
+  // 冻结影响（若全流水冻结，MEM 级挂起的外设写在握手完成后会被重复发起）。
+  // 操作数在 start 拍锁存（等待期间 MEM/WB 推进后前递源会消失）。
+  // 乘除指令不是分支/跳转，与 EX 级重定向无冲突。
+  wire        is_muldiv_e = idex_ctrl.is_muldiv;
+  wire        muldiv_busy, muldiv_done;
+  wire [31:0] muldiv_result;
+  // start 须等 !stall：访存等待期间前递数据可能尚未就绪（如 load 走 2 拍
+  // 回退路径时，冻结拍的前递输出是存储器尚未出数的陈旧值），停顿解除拍
+  // 操作数才稳定，此时发起才能保证锁存正确
+  wire        muldiv_start   = is_muldiv_e && !muldiv_busy && !muldiv_done && !stall && !halted;
+  assign      muldiv_stall   = is_muldiv_e && !muldiv_done && !halted;
+  wire        muldiv_consume = is_muldiv_e && muldiv_done && !stall && !halted;
+  assign      stall_young    = stall || muldiv_stall;
+
+  muldiv muldiv_i (
+    .clk     (clk),
+    .rst_n   (rst_n),
+    .start   (muldiv_start),
+    .consume (muldiv_consume),
+    .op      (idex_ctrl.funct3),
+    .a       (rs1_e),
+    .b       (rs2_e),
+    .busy    (muldiv_busy),
+    .done    (muldiv_done),
+    .result  (muldiv_result)
+  );
 
   // 分支条件判断
   logic cond_e;
@@ -344,14 +378,21 @@ module core #(
       exmem_addr_early <= 1'b0;
       exmem_halt     <= HALT_NONE;
     end else if (!stall) begin
-      exmem_ctrl      <= idex_ctrl;
-      exmem_alu       <= alu_y;
-      exmem_rs2_val   <= rs2_e;
-      exmem_pc4       <= idex_pc + 32'd4;
-      exmem_rd        <= idex_rd;
-      exmem_rs2_addr  <= idex_rs2;
-      exmem_addr_early <= dmem_pf;   // 预取成功标志随 load 进入 MEM
-      exmem_halt      <= idex_halt;
+      if (muldiv_stall) begin
+        // 乘除等待期间向 MEM 级注入气泡（同重定向冲刷），MEM/WB 继续推进
+        exmem_ctrl       <= '0;
+        exmem_addr_early <= 1'b0;
+        exmem_halt       <= HALT_NONE;
+      end else begin
+        exmem_ctrl      <= idex_ctrl;
+        exmem_alu       <= is_muldiv_e ? muldiv_result : alu_y;
+        exmem_rs2_val   <= rs2_e;
+        exmem_pc4       <= idex_pc + 32'd4;
+        exmem_rd        <= idex_rd;
+        exmem_rs2_addr  <= idex_rs2;
+        exmem_addr_early <= dmem_pf;   // 预取成功标志随 load 进入 MEM
+        exmem_halt      <= idex_halt;
+      end
     end
   end
 

@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/../.."   # 仓库根目录
 
 ELFS_DIR=external/riscv-arch-test/work/pango-rv32i/elfs
-EXPECT_COUNT=39   # RV32I 全套 39 项；ACT 版本变更导致数量变化时须同步更新
+EXPECT_COUNT=47   # RV32IM 全套 47 项（I 39 + M 8）；ACT 版本变更导致数量变化时须同步更新
 TB=build/obj_soc/tb_soc
 LOG_DIR=build/act_logs
 mkdir -p "$LOG_DIR"
@@ -36,7 +36,7 @@ for elf in "${ELFS[@]}"; do
 done
 
 echo "----------------------------------------"
-echo "ACT RV32I: $pass 通过, $fail 失败, 共 $((pass+fail)) 项"
+echo "ACT RV32IM: $pass 通过, $fail 失败, 共 $((pass+fail)) 项"
 if [ $fail -ne 0 ]; then
   printf '失败项: %s\n' "${failed[*]}"
   exit 1

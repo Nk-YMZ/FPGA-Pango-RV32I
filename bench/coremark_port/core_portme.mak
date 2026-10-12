@@ -6,7 +6,7 @@ CC      = riscv64-elf-gcc
 LD      = riscv64-elf-gcc
 AS      = riscv64-elf-gcc
 
-PORT_CFLAGS = -O2 -march=rv32i -mabi=ilp32 -mno-relax -nostdlib -ffreestanding
+PORT_CFLAGS = -O2 -march=rv32im -mabi=ilp32 -mno-relax -nostdlib -ffreestanding
 FLAGS_STR = "$(PORT_CFLAGS) $(XCFLAGS) $(XLFLAGS) $(LFLAGS_END)"
 CFLAGS = $(PORT_CFLAGS) -I$(PORT_DIR) -I. -DFLAGS_STR=\"$(FLAGS_STR)\"
 
@@ -15,7 +15,7 @@ OBJOUT  = -o
 COUT    = -c
 OFLAG   = -o
 ASFLAGS =
-LFLAGS  = -march=rv32i -mabi=ilp32 -nostdlib
+LFLAGS  = -march=rv32im -mabi=ilp32 -nostdlib
 # crt0 与链接脚本由调用方经 XLFLAGS 提供；除法等由 libgcc 提供
 LFLAGS_END = -lgcc
 

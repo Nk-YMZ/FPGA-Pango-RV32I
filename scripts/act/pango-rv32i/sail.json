@@ -1,10 +1,10 @@
-// Sail 0.15 参考模型配置：pango-rv32i（本仓库五级流水线核心，纯 RV32I）
+// Sail 0.15 参考模型配置：pango-rv32i（本仓库五级流水线核心，RV32IM）
 // 衍生自 Sail 官方 PicoRV32 示例配置（picorv32_axi, RV32IMC），保留原版权：
 // Copyright (c) 2026, Harvey Mudd College
 // SPDX-License-Identifier: Apache-2.0
-// 已按本核心实际架构修正扩展声明（M / Zmmul / Zca 均改为不支持）。
+// 已按本核心实际架构修正扩展声明（M / Zmmul 已支持，Zca 不支持）。
 //
-// 与本核心仍有意保留的差异（当前测试不触及；做 M 扩展或异常体系迭代前须重估）：
+// 与本核心仍有意保留的差异（当前测试不触及；做异常/中断体系迭代前须重估）：
 // 1. 非对齐访存：本核心直接停机（无陷阱体系），此处仍为 AlignmentException——
 //    Sail 没有"停机"语义可配；UDB 声明 MISALIGNED_LDST=false，测试不会产生
 //    非对齐访问，该配置实际不被触发。
@@ -389,7 +389,7 @@
   "extensions": {
     "M": {
       "mutable_misa": false,
-      "supported": false   // 本核心为纯 RV32I，无乘除法硬件
+      "supported": true    // RV32M 乘除法单元已实现（rtl/muldiv.sv）
     },
     "A": {
       "mutable_misa": false,
@@ -590,7 +590,7 @@
       "supported": false
     },
     "Zmmul": {
-      "supported": false
+      "supported": true    // M 已实现，Zmmul（乘法子集）随之成立
     },
     "Zaamo": {
       "supported": false

@@ -16,7 +16,7 @@
 串口输出（应用实现与上板部署不在本仓库范围内，见「范围边界」）。因此性能/功能优化
 **优先服务该应用场景（吞吐率、诊断延迟、外设能力），其次才是 CoreMark 跑分**。
 
-指令语义以 [RISC-V 官方 RV32I 规范](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html)为准。
+指令语义以 [RISC-V 官方 RV32 非特权规范](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html)（含 M 扩展章节）为准。
 
 ## 现状
 
@@ -25,8 +25,11 @@
 
 **基础任务已全部完成并通过验证：**
 
-- RV32I 五级流水线（IF/ID/EX/MEM/WB）CPU：MEM/WB 两级前递 + WB→ID 前递，
+- RV32IM 五级流水线（IF/ID/EX/MEM/WB）CPU：MEM/WB 两级前递 + WB→ID 前递，
   valid/ready 存储器握手，无 load-use 暂停
+- RV32M 乘除法单元（rtl/muldiv.sv）：乘法两级寄存（DSP 推断友好，EX 级占 2 拍），
+  除法 radix-2 迭代（EX 级占 33 拍），共用 start/busy/done 握手；等待期间部分
+  停顿（冻结 IF/ID/EX、MEM/WB 照常推进），年长访存握手不受冻结影响
 - 2-bit 饱和计数器动态分支预测器（ID 级预测、EX 级验证更新、失败正确恢复）
 - JAL 目标译码即确定，ID 级直接重定向（跳转惩罚 1 拍）
 - 返回地址栈（RAS，16 项）：ID 级预测返回跳转目标，EX 级验证，误预测精确撤销弹栈
@@ -40,13 +43,14 @@
 
 **验证状态：**
 
-- 官方 ACT（riscv-arch-test）RV32I 全套 39/39 通过
-- 自研单元测试 6 项 + 核心冒烟 + SoC 集成 5 项全部通过（自动判定）
-- **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32I 随机程序，Sail 0.15 作黄金参考，
+- 官方 ACT（riscv-arch-test）RV32IM 全套 47/47 通过（I 39 + M 8）
+- 自研单元测试 7 项 + 核心冒烟 + SoC 集成 6 项全部通过（自动判定）
+- **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32IM 随机程序，Sail 0.15 作黄金参考，
   比对内存签名（含全寄存器转储）；默认 20 种子 × instr_cnt=10000，
   当前全部通过（`make rand`）
-- CoreMark 官方 CRC 校验通过；**性能基线：10 次迭代共 9,754,301 周期**
-  （平均约 97.5 万周期/迭代，RV32I 软乘法为主），多次运行结果逐周期一致（确定可复现）
+- CoreMark 官方 CRC 校验通过；**性能基线：10 次迭代共 3,547,147 周期**
+  （平均约 35.5 万周期/迭代，RV32M 硬乘除；上一版 RV32I 软乘为 9,754,301 周期，
+  本轮降幅 63.6%），多次运行结果逐周期一致（确定可复现）
 
 ## 新机器环境搭建
 
@@ -66,7 +70,7 @@
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
 | 自研测试 | 单元测试（ALU/译码器/BHT/UART/GPIO）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
-| 随机指令测试 | riscv-dv Pygen 生成 RV32I 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
+| 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
 
 随机测试层（`scripts/rand/`）：生成驱动 `gen.py`（子类化 pygen 去掉 CSR 初始化、
@@ -82,6 +86,8 @@
 已知限制（pygen 适配）：
 - 上游 master `gen_callstack` 有 bug（`self.callstack_gen` 未初始化），固定
   `--num_of_sub_program=0` 绕开，暂无子程序调用覆盖
+- 上游 `rv32m_instr.py` 把 REMU 误分类为 LOAD（会漏抽且可能混入访存定向流），
+  已在 `gen.py` 适配层修正为 ARITHMETIC，未改 external/ 源码
 - `instr_cnt` 是主程序规模上限（实际在 [10, instr_cnt] 随机），且 pygen 生成较慢
   （万条约 12 秒/种子，靠多核并行摊销）
 - Sail 按 Linux 启动协议把 a1 初始化为 DTB 地址，因此生成程序必须初始化全部 32 个
@@ -95,7 +101,7 @@ coremark v1.01、sail-riscv 0.15（external/tools/bin）、riscv-dv commit 0d71c
 ACT 框架的 Python/Ruby 依赖由 mise 管理（`~/.local/bin/mise`，驱动 uv/ruby/bundler，
 不改系统、不碰 shell 配置）。我们的 ACT 适配层在 `scripts/act/pango-rv32i/`
 （UDB 配置、Sail 参考模型配置、链接脚本、rvmodel 宏）。Sail 配置（sail.json）
-已按实际架构修正为纯 RV32I（无 M/C 声明）；仍有意保留的非对齐陷阱语义与
+已按实际架构修正为 RV32IM（无 C 声明）；仍有意保留的非对齐陷阱语义与
 dtb 地址差异及其兜底理由见该文件头注释。
 
 ## 迭代工作流程
@@ -165,7 +171,7 @@ dtb 地址差异及其兜底理由见该文件头注释。
 
 ## 范围边界
 
-- Cache、完整异常/中断体系、M 等其他指令集扩展、AI 加速、BTB/RAS、DDR3 接入等
+- Cache、完整异常/中断体系、其他指令集扩展、AI 加速、BTB、DDR3 接入等
   属于**后续可选优化项目**。**是否做、何时做、做哪些，一律等用户明确指令**；
   不得自行开工扩大范围，但设计时应保留合理扩展空间。
 - 本项目不涉及上板（PDS 工程、约束、烧录、板级调试等一律不在范围内）。
@@ -174,8 +180,7 @@ dtb 地址差异及其兜底理由见该文件头注释。
 
 ### 已立项：优化迭代（按序逐项实施）
 
-1. **RV32M 乘除法扩展**：软乘法实测约占 CoreMark 周期 17~23%；实现 M 扩展消除软乘除法，ACT 套件与随机测试层须同步扩展至 RV32M
-2. **异常/中断体系**：应用需要定时器与外设中断支撑响应时间统计与超时识别；建立异常/中断机制使应用可中断驱动，对接 ACT 特权测试；以功能验收为主，允许预期内性能回退但须说明
+1. **异常/中断体系**：应用需要定时器与外设中断支撑响应时间统计与超时识别；建立异常/中断机制使应用可中断驱动，对接 ACT 特权测试；以功能验收为主，允许预期内性能回退但须说明
 
 > 已评估放弃：**条件分支预测增强（gshare 全局历史）**。三种配置（GHR=8/256 表项、
 > GHR=4/256 表项、GHR=4/1024 表项）在 CoreMark 上误预测次数均高于本地 2-bit

@@ -1,4 +1,4 @@
-// RV32I 指令译码器：纯组合逻辑，输出控制信号包与立即数
+// RV32IM 指令译码器：纯组合逻辑，输出控制信号包与立即数
 // 约定：
 // - FENCE/FENCE.I 按 NOP 处理（本阶段无 Cache，无需任何动作）
 // - ECALL/EBREAK 单独标记，由核心走停机流程
@@ -142,6 +142,11 @@ module decoder (
       7'b0110011: begin
         ctrl.reg_write = 1'b1;
         ctrl.wb_src    = WB_ALU;
+        if (funct7 == 7'b0000001) begin
+          // RV32M 乘除法：8 种 funct3 全部合法，透传给 EX 级乘除单元
+          ctrl.is_muldiv = 1'b1;
+          ctrl.funct3    = funct3;
+        end else begin
         case (funct3)
           3'b000: begin                                     // ADD/SUB
             if (funct7 == 7'b0000000) ctrl.alu_op = ALU_ADD;
@@ -160,6 +165,7 @@ module decoder (
           3'b110: if (funct7 == 7'b0000000) ctrl.alu_op = ALU_OR;   else ctrl.illegal = 1'b1;
           3'b111: if (funct7 == 7'b0000000) ctrl.alu_op = ALU_AND;  else ctrl.illegal = 1'b1;
         endcase
+        end
       end
       // ---------- FENCE / FENCE.I：按 NOP ----------
       7'b0001111: ;

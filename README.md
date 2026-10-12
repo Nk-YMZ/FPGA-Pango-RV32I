@@ -3,16 +3,17 @@
 2026 年全国大学生嵌入式芯片与系统设计竞赛 · 紫光同创 FPGA 赛道选题一：
 基于紫光同创 RISC-V CPU 的设计（目标芯片：盘古 50）。
 
-本仓库实现一个 **RV32I 五级流水线 32 位 CPU**（SystemVerilog），带 2-bit 动态
-分支预测器、UART/GPIO/周期计数器外设与片上 BRAM，并完成仿真验证与官方合规测试。
+本仓库实现一个 **RV32IM 五级流水线 32 位 CPU**（SystemVerilog），带 2-bit 动态
+分支预测器、多周期乘除法单元、UART/GPIO/周期计数器外设与片上 BRAM，并完成
+仿真验证与官方合规测试。
 当前为纯 RTL + 仿真阶段，不涉及上板适配。
 
 ## 验证状态
 
-- ✅ 官方架构合规测试 **riscv-arch-test RV32I 39/39 通过**（Sail 参考模型生成签名）
+- ✅ 官方架构合规测试 **riscv-arch-test RV32IM 47/47 通过**（Sail 参考模型生成签名）
 - ✅ 自研单元/集成测试全部通过（自动判定，非人工看波形）
-- ✅ **riscv-dv 随机指令测试**：Pygen 生成 + Sail 黄金参考 + 内存签名比对，20 种子全过
-- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 9,754,301 周期（见 `bench/results.csv`）
+- ✅ **riscv-dv 随机指令测试**：Pygen 生成 RV32IM + Sail 黄金参考 + 内存签名比对，20 种子全过
+- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,547,147 周期（见 `bench/results.csv`）
 
 ## 目录
 
@@ -31,7 +32,7 @@ build/     生成产物（gitignore）
 
 ```bash
 make test    # 自研单元 + 核心冒烟 + 集成测试
-make act     # 官方 ISA 合规测试（39 项）
+make act     # 官方 ISA 合规测试（47 项）
 make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make bench   # CoreMark 跑分（周期数，逐次可比）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
