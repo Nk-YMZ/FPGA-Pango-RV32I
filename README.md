@@ -11,6 +11,7 @@
 
 - ✅ 官方架构合规测试 **riscv-arch-test RV32I 39/39 通过**（Sail 参考模型生成签名）
 - ✅ 自研单元/集成测试全部通过（自动判定，非人工看波形）
+- ✅ **riscv-dv 随机指令测试**：Pygen 生成 + Sail 黄金参考 + 内存签名比对，20 种子全过
 - ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 10,310,839 周期（见 `bench/results.csv`）
 
 ## 目录
@@ -20,8 +21,9 @@ rtl/       CPU 核心与外设 RTL（soc_top.sv 为顶层）
 tb/        Verilator 测试平台
 sw/        自研测试程序（链接脚本、crt0、C/汇编测试）
 bench/     CoreMark 移植层与成绩记录（results.csv）
-scripts/   ACT 适配层（scripts/act/）与跑分脚本（scripts/bench/）
-external/  外部组件（riscv-arch-test、coremark、sail；gitignore，脚本拉取）
+scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
+           随机测试层（scripts/rand/，riscv-dv Pygen 适配）
+external/  外部组件（riscv-arch-test、coremark、riscv-dv、sail；gitignore，脚本拉取）
 build/     生成产物（gitignore）
 ```
 
@@ -30,6 +32,7 @@ build/     生成产物（gitignore）
 ```bash
 make test    # 自研单元 + 集成测试
 make act     # 官方 ISA 合规测试（39 项）
+make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make bench   # CoreMark 跑分（周期数，逐次可比）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint

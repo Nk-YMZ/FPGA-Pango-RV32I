@@ -6,6 +6,9 @@
 // - GPIO_IN 固定驱动 0x12345678
 // - 结束判据（普通模式）：停机原因码匹配 EXPECT；给 MAGIC 时要求 gpio_out 等于它
 // - 结束判据（ACT 模式）：监视 dmem 中 tohost 单元，1=通过、3=失败
+// - 签名转储（随机测试用）：+SIGSTART=<起始> +SIGEND=<结束> +SIGFILE=<路径>，
+//   结束时把 dmem [起始,结束) 区间按每行一个 32 位十六进制字写出
+//   （与 Sail --test-signature 的输出格式一致）
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -45,6 +48,12 @@ module tb_soc;
   logic [31:0] tohost_addr;
   logic        act_done;
   logic [31:0] act_tohost;
+
+  // 签名转储与回写轨迹（模块级：always 块共用）
+  int    sig_start, sig_end;
+  string sig_file;
+  string trace_file;
+  int    trace_fd;
   logic        running;      // 复位释放后置 1（避免与异步复位混用告警）
 
   always @(posedge clk) begin
@@ -66,6 +75,12 @@ module tb_soc;
       #(BIT_NS);
       $write("%c", ch);   // 连续文本输出，便于脚本解析
     end
+  end
+
+  // ---- WB 回写轨迹（+TRACELOG 启用，调试用；文件在主 initial 块中打开） ----
+  always @(posedge clk) begin
+    if (trace_fd != 0 && running && dut.core_i.wb_reg_write && dut.core_i.wb_rd != 5'd0)
+      $fwrite(trace_fd, "x%0d = %08x\n", dut.core_i.wb_rd, dut.core_i.wb_data);
   end
 
   // ---- UART RX 激励：复位结束后发送 0xA5 ----
@@ -100,6 +115,17 @@ module tb_soc;
     running = 0;
     $value$plusargs("TOHOST=%h", tohost_addr);
     if (!$value$plusargs("TIMEOUT=%d", timeout_cycles)) timeout_cycles = 2000000;
+    // 签名转储区间（不给出 SIGFILE 则不转储）
+    sig_start = 0; sig_end = 0;
+    $value$plusargs("SIGSTART=%h", sig_start);
+    $value$plusargs("SIGEND=%h", sig_end);
+    if (!$value$plusargs("SIGFILE=%s", sig_file)) sig_file = "";
+    if (!$value$plusargs("TRACELOG=%s", trace_file)) trace_file = "";
+    trace_fd = 0;
+    if (trace_file != "") begin
+      trace_fd = $fopen(trace_file, "w");
+      if (trace_fd == 0) $fatal(1, "tb_soc: 无法打开轨迹文件 %s", trace_file);
+    end
 
     $display("tb_soc: HEX=%s EXPECT=%0d MAGIC=%h", hex, expect_code, magic);
     $readmemh(hex, dut.imem_i.mem);
@@ -126,6 +152,17 @@ module tb_soc;
 
     @(posedge clk); #1;
     $display("tb_soc: 停机原因码=%0d, 分支预测失败次数=%0d", halt_code, mispredict_cnt);
+
+    // 签名转储：dmem [sig_start, sig_end)，每行一个 32 位字（同 Sail --test-signature）
+    if (sig_file != "") begin
+      int fd;
+      fd = $fopen(sig_file, "w");
+      if (fd == 0) $fatal(1, "tb_soc: 无法打开签名输出文件 %s", sig_file);
+      for (int a = sig_start; a < sig_end; a += 4)
+        $fwrite(fd, "%08x\n", dut.dmem_i.mem[a[MEM_AW+1:2]]);
+      $fclose(fd);
+      $display("tb_soc: 签名已转储 %s (%0d 字)", sig_file, (sig_end - sig_start) / 4);
+    end
 
     if (tohost_addr != 0) begin
       // ACT 自检模式：只判 tohost

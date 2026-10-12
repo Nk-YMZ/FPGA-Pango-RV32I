@@ -6,10 +6,11 @@
 #
 # 本脚本完成：
 #   1. 检查上述命令是否存在
-#   2. external/ 下拉取固定版本的外部组件（riscv-arch-test / coremark / sail）
+#   2. external/ 下拉取固定版本的外部组件（riscv-arch-test / coremark / sail / riscv-dv）
 #   3. 用户级安装 mise（~/.local/bin/mise，独立二进制），并安装 ACT 框架所需的
 #      ruby/bundler/uv（~/.local/share/mise，由仓库 .mise.toml 驱动）
-#   4. 冒烟验证 make test
+#   4. 创建项目 Python 虚拟环境 .venv（riscv-dv Pygen 依赖，Python 3.12，不动系统）
+#   5. 冒烟验证 make test
 set -euo pipefail
 cd "$(dirname "$0")/.."   # 仓库根目录
 
@@ -17,8 +18,9 @@ ARCHTEST_COMMIT=af6485c2a31d9239c9623c70648da4d6fd87f17b   # 2026-10-11 main
 COREMARK_TAG=v1.01                                         # cfa9ab3
 SAIL_VER=0.15
 MISE_VER=v2026.10.8
+RISCV_DV_COMMIT=0d71c2b666dec48dde0b804a2138426da56aa252   # 2026-09-21 master
 
-echo "== 1/4 检查系统依赖 =="
+echo "== 1/5 检查系统依赖 =="
 missing=0
 for cmd in verilator gtkwave riscv64-elf-gcc make git python3 uv curl tar; do
   if ! command -v "$cmd" >/dev/null; then
@@ -29,7 +31,7 @@ done
 [ $missing -eq 0 ] || { echo "请先用 pacman 安装缺失的包后再运行本脚本"; exit 1; }
 echo "  系统依赖齐全"
 
-echo "== 2/4 拉取外部组件（固定版本） =="
+echo "== 2/5 拉取外部组件（固定版本） =="
 mkdir -p external
 
 if [ ! -d external/riscv-arch-test ]; then
@@ -56,7 +58,15 @@ else
   echo "  sail 已存在"
 fi
 
-echo "== 3/4 安装 mise 与 ACT 框架工具链（用户级） =="
+if [ ! -d external/riscv-dv ]; then
+  git clone --filter=blob:none https://github.com/chipsalliance/riscv-dv.git external/riscv-dv
+  git -C external/riscv-dv checkout -q "$RISCV_DV_COMMIT"
+  echo "  riscv-dv @ $RISCV_DV_COMMIT"
+else
+  echo "  riscv-dv 已存在（$(git -C external/riscv-dv rev-parse --short HEAD)）"
+fi
+
+echo "== 3/5 安装 mise 与 ACT 框架工具链（用户级） =="
 if [ ! -x "$HOME/.local/bin/mise" ]; then
   mkdir -p "$HOME/.local/bin"
   curl -sL "https://github.com/jdx/mise/releases/download/$MISE_VER/mise-$MISE_VER-linux-x64" \
@@ -72,8 +82,15 @@ cd external/riscv-arch-test
 cd ../..
 echo "  ruby/bundler/uv 已由 mise 备好"
 
-echo "== 4/4 冒烟验证 =="
+echo "== 4/5 创建 Pygen Python 环境（.venv，Python 3.12） =="
+if [ ! -x .venv/bin/python ]; then
+  uv venv --python 3.12 .venv
+fi
+uv pip install --python .venv/bin/python -r scripts/rand/requirements.txt -q
+echo "  .venv 就绪"
+
+echo "== 5/5 冒烟验证 =="
 make test >/dev/null 2>&1 && echo "  make test 通过" || { echo "  make test 失败，请检查"; exit 1; }
 
 echo ""
-echo "环境就绪。常用入口：make test / make act / make bench"
+echo "环境就绪。常用入口：make test / make act / make rand / make bench"

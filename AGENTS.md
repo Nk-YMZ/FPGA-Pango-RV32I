@@ -11,7 +11,7 @@
 
 指令语义以 [RISC-V 官方 RV32I 规范](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html)为准。
 
-## 现状（2026-10-12，提交 31086f9）
+## 现状（2026-10-12，提交 5350d2f）
 
 **基础任务已全部完成并通过验证：**
 
@@ -28,6 +28,9 @@
 
 - 官方 ACT（riscv-arch-test）RV32I 全套 39/39 通过
 - 自研单元测试 5 项 + 核心冒烟 + SoC 集成 5 项全部通过（自动判定）
+- **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32I 随机程序，Sail 0.15 作黄金参考，
+  比对内存签名（含全寄存器转储）；默认 20 种子 × instr_cnt=10000，16 核并行约 2 分钟，
+  当前全部通过（`make rand`）
 - CoreMark 官方 CRC 校验通过；**性能基线：10 次迭代共 10,310,839 周期**
   （1,031,083 周期/迭代，RV32I 软乘法为主），逐次运行周期数完全一致
 
@@ -41,7 +44,8 @@
 3. 完成后即可使用全部入口：`make test` / `make act` / `make bench` / `make wave`
 
 外部组件固定版本：riscv-arch-test `af6485c`（2026-10-11）、coremark `v1.01`、
-sail-riscv `0.15`、mise `v2026.10.8`。更换版本须连同测试结果一起评估后再提交。
+sail-riscv `0.15`、riscv-dv `0d71c2b`（2026-09-21）、mise `v2026.10.8`。
+更换版本须连同测试结果一起评估后再提交。
 
 ## 测试体系（三层 + 跑分）
 
@@ -49,8 +53,23 @@ sail-riscv `0.15`、mise `v2026.10.8`。更换版本须连同测试结果一起�
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
 | 自研测试 | 单元测试（ALU/译码器/BHT/UART/GPIO）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
-| 随机指令测试 | **待建**，见待办 1 | `make rand`（规划） |
+| 随机指令测试 | riscv-dv Pygen 生成 RV32I 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
+
+随机测试层（`scripts/rand/`）：生成驱动 `gen.py`（子类化 pygen 去掉 CSR 初始化、
+收尾转储全寄存器到签名区）、target 配置 `target/pango_rv32i/`、链接脚本 `link.ld`
+（定义 begin_signature/end_signature）、并行调度 `run_rand.sh` + 单种子流水线
+`run_one.sh`。tb_soc 侧新增 `+SIGSTART/+SIGEND/+SIGFILE` 签名转储与 `+TRACELOG`
+回写轨迹（调试分歧用，与 Sail `--trace-gpr` 逐条比对）。
+
+已知限制（pygen 适配）：
+- 上游 master `gen_callstack` 有 bug（`self.callstack_gen` 未初始化），固定
+  `--num_of_sub_program=0` 绕开，暂无子程序调用覆盖
+- `instr_cnt` 是主程序规模上限（实际在 [10, instr_cnt] 随机），且 pygen 生成较慢
+  （万条约 12 秒/种子，靠多核并行摊销）
+- Sail 按 Linux 启动协议把 a1 初始化为 DTB 地址，因此生成程序必须初始化全部 32 个
+  寄存器（上游 init_gpr 会跳过 sp/tp，已在子类中覆盖）
+- 随机程序不含 CSR/陷阱/非对齐访存（本核心会停机），故障路径仍由自研故障测试覆盖
 
 外部组件统一放 `external/`（gitignore，按固定版本拉取）：riscv-arch-test
 （commit af6485c，2026-10-11）、coremark（v1.01）、sail-riscv 0.15（external/tools/bin）。
@@ -60,12 +79,11 @@ ACT 框架的 Python/Ruby 依赖由 mise 管理（`~/.local/bin/mise`，驱动 u
 
 ## 迭代工作流程
 
-流程建设基本完成（ACT + CoreMark 已可用），**待随机测试层（待办 1）建成后全面启用**。
-此后每次迭代严格按以下流程：
+ACT + CoreMark + 随机测试三层均已可用。此后每次迭代严格按以下流程：
 
 1. **确定目标**：明确本轮改动内容与预期收益（性能/功能），范围不确定时先问用户
 2. **进行修改**：RTL/软件改动，遵守编码规范
-3. **正确性验证**：`make test` + `make act` 必须全绿；建了随机层后加 `make rand`。
+3. **正确性验证**：`make test` + `make act` + `make rand` 必须全绿。
    任何失败先修复再继续，不得带病跑分
 4. **性能评估**：`make bench`，与 `bench/results.csv` 上一轮对比；
    周期数下降为提升。回退须在提交说明中解释原因（如换取功能）或修复
@@ -99,22 +117,11 @@ ACT 框架的 Python/Ruby 依赖由 mise 管理（`~/.local/bin/mise`，驱动 u
 
 ## 剩余待办
 
-### 待办 1：riscv-dv 随机指令测试层（下一项优先做）
-
-- 目标：社区标准随机指令测试，抓官方套件覆盖不到的指令序列/时序组合 BUG
-- 技术方向：riscv-dv **Pygen**（Python 移植版；主生成器是 SV/UVM，Verilator
-  用不了）生成 RV32I 随机程序 → **Sail** 做黄金参考（Spike 已弃用：其启动 ROM
-  占用 0x1000 且 ELF 加载器与新版 binutils 不兼容）→ 比对内存签名
-- 依赖管理：项目内 uv venv（pyvsc/pyboolector 等 PyPI 包；若与系统 Python 3.14
-  不兼容，用 uv 拉独立 Python 3.12，不进系统目录）；riscv-dv 克隆到 `external/`
-- 接入：生成脚本与比对脚本放 `scripts/rand/`，入口 `make rand`，建成后并入
-  `make test`；默认 20 种子 × 约 1 万条指令，规模可调
-
-### 待办 2：上板与正式测评（团队后续，agent 暂不涉及）
+### 待办 1：上板与正式测评（团队后续，agent 暂不涉及）
 
 PDS 工程、约束、下载调试、板级 CoreMark、资源/时序分析报告。
 
-### 待办 3：可选优化方向（等用户指令，不自行开工）
+### 待办 2：可选优化方向（等用户指令，不自行开工）
 
 - 性能类：M 扩展（CoreMark 软乘法是大头）、BTB/RAS（跳转目标预测）、
   dmem 读提前到 EX 级（消除 load 第 2 拍）、Cache

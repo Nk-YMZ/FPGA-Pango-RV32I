@@ -101,6 +101,14 @@ bench: $(SOC_TB)
 	    REBUILD=1 link XLFLAGS="$(CM_OUT)/crt0.o -T $(abspath sw/link.ld)"
 	bash scripts/bench/run_bench.sh $(CM_ITER)
 
+# ---------------- riscv-dv 随机指令测试 ----------------
+# Pygen 生成 RV32I 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名
+RAND_SEEDS ?= $(shell seq 1 20)
+RAND_INSTR ?= 10000
+
+rand: $(SOC_TB)
+	RAND_SEEDS="$(RAND_SEEDS)" RAND_INSTR=$(RAND_INSTR) bash scripts/rand/run_rand.sh
+
 # ---------------- lint ----------------
 lint:
 	@mkdir -p $(BUILD)
