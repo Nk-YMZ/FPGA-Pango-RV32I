@@ -8,7 +8,11 @@
 // 指令口：仅从 0x0 开始的 imem 取指。
 `default_nettype none
 
-module soc_top (
+module soc_top #(
+  // RAM 容量（决定译码窗口与 BRAM 深度）。FPGA 默认 64KiB；
+  // 仿真（如官方 ACT 测试）可通过参数放大。
+  parameter int RAM_BYTES = 64 * 1024
+) (
   input  wire                  clk,
   input  wire                  rst_n,
   output wire                  halted,
@@ -30,7 +34,7 @@ module soc_top (
   wire [3:0]  bus_wstrb;
 
   // ---- 地址译码 ----
-  wire sel_dmem = (bus_addr < 32'h0002_0000);
+  wire sel_dmem = (bus_addr < RAM_BYTES);
   wire sel_gpio = (bus_addr[31:8] == 24'h10_00_00);
   wire sel_uart = (bus_addr[31:8] == 24'h10_00_10);
 
@@ -58,9 +62,10 @@ module soc_top (
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
 
-  imem imem_i (.clk(clk), .addr(imem_addr), .rdata(imem_rdata), .ready(imem_ready));
+  imem #(.DEPTH_WORDS(RAM_BYTES / 4)) imem_i
+      (.clk(clk), .addr(imem_addr), .rdata(imem_rdata), .ready(imem_ready));
 
-  dmem dmem_i (
+  dmem #(.DEPTH_WORDS(RAM_BYTES / 4)) dmem_i (
     .clk(clk), .rst_n(rst_n), .valid(dmem_valid), .write(bus_write),
     .addr(bus_addr), .wdata(bus_wdata), .wstrb(bus_wstrb),
     .rdata(dmem_rdata), .ready(dmem_ready)

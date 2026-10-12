@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/riscv/riscv-unified-db/main/spec/schemas/config_schema.json
+# UDB 架构配置：pango-rv32i 五级流水线核心
+# 纯 RV32I（I 2.1），无 CSR、无陷阱体系（ecall/ebreak/非法指令一律停机而非陷入），
+# 参数写法参照官方仓库中同为"无 CSR"的 picorv32 配置。
+---
+$schema: config_schema.json#
+kind: architecture configuration
+type: fully configured
+name: pango-rv32i
+description: 紫光同创赛道 RV32I 五级流水线 CPU（无特权架构，哈佛结构，片上 BRAM）
+implemented_extensions:
+  - { name: I, version: "= 2.1" }
+  # UDB 要求至少声明 Sm 才存在以下参数；本核心无任何 CSR，由参数如实描述
+  - { name: Sm, version: "= 1.11.0" }
+
+params:
+  MXLEN: 32
+  PHYS_ADDR_WIDTH: 32
+  M_MODE_ENDIANNESS: little
+
+  MISA_CSR_IMPLEMENTED: false
+  NON_STANDARD_EXTENSION_IMPLEMENTED: false
+
+  # 无陷阱体系：任何异常条件都直接停机，不产生陷入
+  PRECISE_SYNCHRONOUS_EXCEPTIONS: false
+  TRAP_ON_ECALL_FROM_M: false
+  TRAP_ON_EBREAK: false
+  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: false
+  TRAP_ON_RESERVED_INSTRUCTION: false
+  TRAP_ON_UNIMPLEMENTED_CSR: false
+  TRAP_ON_ILLEGAL_WLRL: false
+
+  WFI_FINITE: false
+  WFI_U_MODE: false
+
+  REPORT_VA_IN_MTVAL_ON_BREAKPOINT: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: false
+  REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
+  MTVAL_WIDTH: 32
+
+  # 非对齐访存硬件不支持（停机）
+  MISALIGNED_LDST: false
+  MISALIGNED_LDST_EXCEPTION_PRIORITY: high
+
+  MARCHID_IMPLEMENTED: false
+  MIMPID_IMPLEMENTED: false
+  VENDOR_ID_BANK: 0x0
+  VENDOR_ID_OFFSET: 0x0
+
+  PMA_GRANULARITY: 2
+
+  MTVEC_ACCESS: ro
+  MTVEC_MODES: [0]
+  MTVEC_ILLEGAL_WRITE_BEHAVIOR: custom
+
+  MCOUNTINHIBIT_IMPLEMENTED: false
+  # UDB 要求的 32 位计数器使能数组（本核心无计数器，全 false）
+  HPM_COUNTER_EN: [false, false, false, false, false, false, false, false,
+                   false, false, false, false, false, false, false, false,
+                   false, false, false, false, false, false, false, false,
+                   false, false, false, false, false, false, false, false]
+  MCOUNTENABLE_EN: [false, false, false, false, false, false, false, false,
+                    false, false, false, false, false, false, false, false,
+                    false, false, false, false, false, false, false, false,
+                    false, false, false, false, false, false, false, false]
+
+  NUM_PMP_ENTRIES: 0

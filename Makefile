@@ -72,6 +72,20 @@ $(BUILD)/test_isa.elf: sw/tests/test_isa.c sw/crt0.S sw/link.ld
 	@mkdir -p $(BUILD)
 	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/tests/test_isa.c -o $@
 
+# ---------------- 官方 ACT（riscv-arch-test） ----------------
+ACT_DIR    := external/riscv-arch-test
+ACT_CONFIG := $(abspath scripts/act/pango-rv32i/test_config.yaml)
+ACT_ENV    := PATH="$(HOME)/.local/bin:$(abspath external/tools/bin):$$PATH"
+
+# 生成自检 ELF（框架在 ACT 仓库内运行，uv/ruby 由 mise 提供）
+act-build:
+	cd $(ACT_DIR) && $(ACT_ENV) mise exec -- make elfs \
+	    CONFIG_FILES=$(ACT_CONFIG) EXTENSIONS=I FAST=True
+
+# 构建仿真器 + 生成 ELF + 运行全部测试
+act: $(SOC_TB) act-build
+	bash scripts/act/run_act.sh
+
 # ---------------- lint ----------------
 lint:
 	@mkdir -p $(BUILD)
@@ -84,3 +98,4 @@ wave: $(SOC_TB) $(BUILD)/test_isa.hex
 
 clean:
 	rm -rf $(BUILD)/*
+	@echo "提示：external/ 下的 ACT 构建产物可用 make -C external/riscv-arch-test clean 清理"

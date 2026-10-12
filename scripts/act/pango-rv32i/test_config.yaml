@@ -1,0 +1,10 @@
+# ACT 框架配置：pango-rv32i（本仓库五级流水线 RV32I 核心）
+# 参考模型使用 Spike（经 spike-pango.sh 包装，内存映射与 DUT 一致）
+name: pango-rv32i
+compiler_exe: riscv64-elf-gcc
+objdump_exe: riscv64-elf-objdump
+ref_model_exe: sail_riscv_sim   # 由 PATH 提供（external/tools/bin，见 Makefile）
+udb_config: pango-rv32i.yaml
+linker_script: link.ld
+dut_include_dir: .
+include_priv_tests: false   # 本核心无特权架构，跳过全部特权测试

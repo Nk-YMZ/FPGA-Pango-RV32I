@@ -1,6 +1,12 @@
 # Verilator / simulation build outputs
 build/
 
+# 外部组件（riscv-arch-test、coremark、riscv-dv、sail 等，脚本按固定版本拉取）
+external/
+
+# Python 虚拟环境
+.venv/
+
 # Waveforms
 *.vcd
 *.fst
