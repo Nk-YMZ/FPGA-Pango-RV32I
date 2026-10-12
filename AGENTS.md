@@ -63,6 +63,10 @@ sail-riscv `0.15`、riscv-dv `0d71c2b`（2026-09-21）、mise `v2026.10.8`。
 （定义 begin_signature/end_signature）、并行调度 `run_rand.sh` + 单种子流水线
 `run_one.sh`。tb_soc 侧新增 `+SIGSTART/+SIGEND/+SIGFILE` 签名转储与 `+TRACELOG`
 回写轨迹（调试分歧用，与 Sail `--trace-gpr` 逐条比对）。
+定点复核 `replay.sh`：`bash scripts/rand/replay.sh <种子> [更多种子...]`，
+不重生成程序，直接用 `build/rand/seed_<N>/` 保留的 `rand.hex` + `ref.sig`
+重跑 RTL 并比对签名；不覆盖原 `dut.sig`/`run.log`（复核产物为
+`dut_replay.sig`/`replay.log`）。用于修复后复核失败种子，详见迭代工作流程第 3 步。
 
 已知限制（pygen 适配）：
 - 上游 master `gen_callstack` 有 bug（`self.callstack_gen` 未初始化），固定
@@ -89,7 +93,12 @@ ACT + CoreMark + 随机测试三层均已可用。此后每次迭代严格按以
    每轮只做一个原子化改进（见下方「变更粒度」）
 2. **进行修改**：RTL/软件改动，遵守编码规范
 3. **正确性验证**：`make test` + `make act` + `make rand` 必须全绿。
-   任何失败先修复再继续，不得带病跑分
+   任何失败先修复再继续，不得带病跑分。
+   **`make rand` 检出分歧时的强制复核顺序**：修复后必须先用出问题的原种子
+   复核通过（`bash scripts/rand/replay.sh <种子>`），再跑全量 `make rand`。
+   理由：replay 直接复用磁盘上的失败现场（同一程序必然复现，不受生成侧
+   改动影响），而全量重生成只有生成链路完全未变才能复现同一程序；先复核
+   旧种子可确认修复确实对症，而不是被新一批随机程序「碰巧放过」。
 4. **性能评估**：`make bench`，与 `bench/results.csv` 上一轮对比；
    周期数下降为提升。回退须在提交说明中解释原因（如换取功能）或修复
 5. **更新文档**：README 与本文档的"现状"段同步（含基线数据）
