@@ -13,7 +13,7 @@ BUILD := build
 
 RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
             rtl/core.sv rtl/imem.sv rtl/dmem.sv
-RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/soc_top.sv
+RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/soc_top.sv
 
 RISCV       := riscv64-elf-
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles
@@ -85,6 +85,21 @@ act-build:
 # 构建仿真器 + 生成 ELF + 运行全部测试
 act: $(SOC_TB) act-build
 	bash scripts/act/run_act.sh
+
+# ---------------- CoreMark 跑分 ----------------
+CM_DIR  := external/coremark
+CM_PORT := $(abspath bench/coremark_port)
+CM_OUT  := $(abspath build/coremark)
+CM_ITER ?= 10
+
+# 用官方 coremark Makefile 构建（PORT_DIR 指向我们的移植层），再仿真跑分
+bench: $(SOC_TB)
+	rm -rf $(CM_OUT)   # 移植层头文件变更不会被官方 Makefile 追踪，每次全量重建
+	mkdir -p $(CM_OUT)
+	$(RISCV)gcc $(RISCV_FLAGS) -c sw/crt0.S -o $(CM_OUT)/crt0.o
+	$(MAKE) -C $(CM_DIR) PORT_DIR=$(CM_PORT) OPATH=$(CM_OUT)/ ITERATIONS=$(CM_ITER) \
+	    REBUILD=1 link XLFLAGS="$(CM_OUT)/crt0.o -T $(abspath sw/link.ld)"
+	bash scripts/bench/run_bench.sh $(CM_ITER)
 
 # ---------------- lint ----------------
 lint:

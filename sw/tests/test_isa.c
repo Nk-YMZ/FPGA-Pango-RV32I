@@ -5,6 +5,8 @@
 
 #define UART_DATA   (*(volatile uint32_t *)0x10001000u)
 #define UART_STATUS (*(volatile uint32_t *)0x10001004u)
+#define CCTR_LO     (*(volatile uint32_t *)0x10002000u)
+#define CCTR_HI     (*(volatile uint32_t *)0x10002004u)
 #define GPIO_OUT    (*(volatile uint32_t *)0x10000000u)
 #define GPIO_IN     (*(volatile uint32_t *)0x10000004u)
 
@@ -83,6 +85,13 @@ int main(void)
     check(timeout != 0);
     check(UART_DATA == 0xA5u);
     check((UART_STATUS & 0x2u) == 0);          // 读后 rx_valid 清零
+
+    // ---- 周期计数器：读两次应递增，读 LO 后 HI 快照可读 ----
+    uint32_t c0 = CCTR_LO;
+    for (volatile int i = 0; i < 50; i++) ;
+    uint32_t c1 = CCTR_LO;
+    check(c1 > c0);
+    check(CCTR_HI == 0);            // 仿真时长远小于 2^32 周期
 
     uart_puts(fails == 0 ? "ISA test PASS\n" : "ISA test FAIL\n");
     return fails;

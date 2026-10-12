@@ -1,9 +1,10 @@
 // SoC 顶层：CPU 核心 + 指令存储器 + 数据存储器 + UART + GPIO
 //
 // 地址映射（数据口）：
-//   0x0000_0000 - 0x0001_FFFF  RAM（物理 64KiB，范围内回绕）
+//   0x0000_0000 - 0x0001_FFFF  RAM（物理 64KiB，范围内回绕；仿真可经参数放大）
 //   0x1000_0000 - 0x1000_00FF  GPIO
 //   0x1000_1000 - 0x1000_10FF  UART
+//   0x1000_2000 - 0x1000_20FF  周期计数器（benchmark 计时用）
 //   其余                        未映射：err=1，核心停机（HALT_BUS）
 // 指令口：仅从 0x0 开始的 imem 取指。
 `default_nettype none
@@ -37,20 +38,24 @@ module soc_top #(
   wire sel_dmem = (bus_addr < RAM_BYTES);
   wire sel_gpio = (bus_addr[31:8] == 24'h10_00_00);
   wire sel_uart = (bus_addr[31:8] == 24'h10_00_10);
+  wire sel_cctr = (bus_addr[31:8] == 24'h10_00_20);
 
   wire        dmem_valid = bus_valid && sel_dmem;
   wire        gpio_valid = bus_valid && sel_gpio;
   wire        uart_valid = bus_valid && sel_uart;
-  wire [31:0] dmem_rdata, gpio_rdata, uart_rdata;
+  wire        cctr_valid = bus_valid && sel_cctr;
+  wire [31:0] dmem_rdata, gpio_rdata, uart_rdata, cctr_rdata;
   wire        dmem_ready, uart_ready;
-  wire        gpio_ready;
+  wire        gpio_ready, cctr_ready;
 
   assign bus_ready = sel_dmem ? dmem_ready :
                      sel_gpio ? gpio_ready :
-                     sel_uart ? uart_ready : 1'b1;
-  assign bus_err   = bus_valid && !(sel_dmem || sel_gpio || sel_uart);
+                     sel_uart ? uart_ready :
+                     sel_cctr ? cctr_ready : 1'b1;
+  assign bus_err   = bus_valid && !(sel_dmem || sel_gpio || sel_uart || sel_cctr);
   assign bus_rdata = sel_gpio ? gpio_rdata :
-                     sel_uart ? uart_rdata : dmem_rdata;
+                     sel_uart ? uart_rdata :
+                     sel_cctr ? cctr_rdata : dmem_rdata;
 
   // ---- 子模块 ----
   core core_i (
@@ -83,6 +88,12 @@ module soc_top #(
     .valid(gpio_valid), .write(bus_write), .addr(bus_addr[3:0]), .wdata(bus_wdata),
     .rdata(gpio_rdata), .ready(gpio_ready),
     .gpio_out(gpio_out), .gpio_in(gpio_in)
+  );
+
+  cyclectr cyclectr_i (
+    .clk(clk), .rst_n(rst_n),
+    .valid(cctr_valid), .write(bus_write), .addr(bus_addr[3:0]),
+    .rdata(cctr_rdata), .ready(cctr_ready)
   );
 
 endmodule

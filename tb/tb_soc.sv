@@ -64,7 +64,7 @@ module tb_soc;
       #(BIT_NS / 2 + 10);
       for (int i = 0; i < 8; i++) begin #(BIT_NS) ch[i] = uart_txd; end
       #(BIT_NS);
-      $write("[UART] %c\n", ch);
+      $write("%c", ch);   // 连续文本输出，便于脚本解析
     end
   end
 
@@ -84,6 +84,7 @@ module tb_soc;
     string hex;
     int    expect_code;
     int    magic;
+    int    timeout_cycles;
     int    errors;
 
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
@@ -98,6 +99,7 @@ module tb_soc;
     act_tohost = 0;
     running = 0;
     $value$plusargs("TOHOST=%h", tohost_addr);
+    if (!$value$plusargs("TIMEOUT=%d", timeout_cycles)) timeout_cycles = 2000000;
 
     $display("tb_soc: HEX=%s EXPECT=%0d MAGIC=%h", hex, expect_code, magic);
     $readmemh(hex, dut.imem_i.mem);
@@ -117,7 +119,7 @@ module tb_soc;
       wait (halted);
       wait (act_done);
       begin
-        repeat (2000000) @(posedge clk);
+        repeat (timeout_cycles) @(posedge clk);
         $fatal(1, "tb_soc: 超时未停机");
       end
     join_any
