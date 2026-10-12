@@ -35,8 +35,8 @@ make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint
 ```
 
-依赖：Verilator、GTKWave、`riscv64-elf-gcc`（Arch 包 `riscv64-elf-gcc`）、make、
-python3；`make act` 另需 mise（管理 uv/ruby）与 `external/tools/` 中的 Sail。
+依赖：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`，
+然后运行 `bash scripts/setup.sh` 自动拉取外部组件并备好工具链（详见 AGENTS.md）。
 
 ## 说明
 

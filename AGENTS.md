@@ -31,6 +31,18 @@
 - CoreMark 官方 CRC 校验通过；**性能基线：10 次迭代共 10,310,839 周期**
   （1,031,083 周期/迭代，RV32I 软乘法为主），逐次运行周期数完全一致
 
+## 新机器环境搭建（多设备轮转）
+
+1. 装系统包：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`
+2. 克隆本仓库后运行 `bash scripts/setup.sh`（幂等）：检查依赖 → 按固定版本拉取
+   `external/` 外部组件（riscv-arch-test / coremark / sail）→ 用户级安装 mise
+   及 ACT 框架工具链（ruby/bundler/uv，均在用户目录，不改系统与 shell 配置）→
+   冒烟验证 `make test`
+3. 完成后即可使用全部入口：`make test` / `make act` / `make bench` / `make wave`
+
+外部组件固定版本：riscv-arch-test `af6485c`（2026-10-11）、coremark `v1.01`、
+sail-riscv `0.15`、mise `v2026.10.8`。更换版本须连同测试结果一起评估后再提交。
+
 ## 测试体系（三层 + 跑分）
 
 | 层 | 内容 | 入口 |
