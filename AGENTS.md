@@ -88,6 +88,10 @@
 - **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32IM 随机程序，Sail 0.15 作黄金参考，
   比对内存签名（含全寄存器转储）；默认 20 种子 × instr_cnt=10000，
   当前全部通过（`make rand`）
+- **同步陷阱随机化层已建成**（`make randtrap`）：随机程序中注入 ecall/ebreak/非法指令/
+  非对齐访存，程序自带最小陷入 handler 转储 mcause/mepc/mtval/mstatus 到签名区，
+  仍由 Sail 黄金参考逐字裁决（期望值零手工推演）；20 种子共 944 次陷入全部一致。
+  该层上线即检出并修复一个真实 RTL bug：MEM 级访存故障被乘除停顿吞掉（80beb8b）
 - CoreMark 官方 CRC 校验通过；**性能基线：10 次迭代共 3,547,147 周期**
   （平均约 35.5 万周期/迭代，RV32M 硬乘除；上一版 RV32I 软乘为 9,754,301 周期，
   本轮降幅 63.6%），多次运行结果逐周期一致（确定可复现）
@@ -112,6 +116,7 @@
 | 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释 | `make rtests` |
 | 自研测试 | 单元测试（ALU/译码器/BHT/UART/GPIO）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
+| 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
 
 随机测试层（`scripts/rand/`）：生成驱动 `gen.py`（子类化 pygen 去掉 CSR 初始化、
@@ -124,6 +129,22 @@
 重跑 RTL 并比对签名；不覆盖原 `dut.sig`/`run.log`（复核产物为
 `dut_replay.sig`/`replay.log`）。用于修复后复核失败种子，详见迭代工作流程第 3 步。
 
+同步陷阱随机化（`make randtrap`，RAND_TRAP=1 走同一流水线，产物目录
+`trap_seed_<N>/`）：gen.py `--trap` 模式在 main 程序段注入陷阱片段（ecall/ebreak/
+非法指令编码池/非对齐 load-store），程序头部初始化 mtvec/mscratch，自带固定最小
+handler——转储 mcause/mepc/mtval/mstatus 到签名区内日志、mepc+=4 跳过故障指令、
+mret 续行。Sail 对同一 ELF 逐条执行同样的陷入与 handler，mcause/mepc/mtval 的
+期望值由黄金参考产生，无任何手工推演的拍级行为。要点：
+- 注入片段只覆写两个「注入寄存器」（避开 pygen 保留集后动态选定并补入保留集），
+  不扰动程序原有状态与地址；handler 保存/恢复所用寄存器，净效果零扰动
+- 非法指令编码池经 Sail 探针逐条验证双方一致判非法（全 1、sret/dret 字段变体、
+  写 satp、读 cycle、保留操作码 0101011），字段随机化只动双方译码均忽略的位
+- 注入点优先避开分支前跳跳过区间（实测该区间占主程序约 80%，不加规避触发率仅 2/10）
+- handler 有日志溢出守卫：计划外重复触发（如注入落入回边）写 tohost=3 硬失败，
+  不会静默出错；日志尾部为零、陷入次数由日志内容隐式核对
+- 不覆盖：中断（异步，Sail 无法注入）、WFI、vectored 偏移——由既有定向测试
+  （test_irq/test_trap）兜底
+
 已知限制（pygen 适配）：
 - 上游 master `gen_callstack` 有 bug（`self.callstack_gen` 未初始化），固定
   `--num_of_sub_program=0` 绕开，暂无子程序调用覆盖
@@ -133,7 +154,8 @@
   （万条约 12 秒/种子，靠多核并行摊销）
 - Sail 按 Linux 启动协议把 a1 初始化为 DTB 地址，因此生成程序必须初始化全部 32 个
   寄存器（上游 init_gpr 会跳过 sp/tp，已在子类中覆盖）
-- 随机程序不含 CSR/陷阱/非对齐访存（本核心会停机），故障路径仍由自研故障测试覆盖
+- 常规模式（`make rand`）随机程序不含 CSR/陷阱/非对齐访存；同步陷阱覆盖由
+  `make randtrap` 承担（见上），中断/WFI 等异步路径仍由自研定向测试覆盖
 
 外部组件固定版本（更换版本须连同测试结果一起评估后再提交）：
 `external/` 下（gitignore，setup.sh 拉取）：riscv-arch-test commit af6485c（2026-10-11）、

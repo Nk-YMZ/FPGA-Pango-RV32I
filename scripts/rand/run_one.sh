@@ -13,17 +13,28 @@ SAIL=external/tools/bin/sail_riscv_sim
 SAIL_CFG=scripts/act/pango-rv32i/sail.json
 LINK_LD=scripts/rand/link.ld
 
-dir=build/rand/seed_$seed
+# 陷阱模式（RAND_TRAP=1）：生成含同步陷阱注入的程序，产物目录与常规模式隔离；
+# 程序含 CSR 指令，汇编需 rv32im_zicsr（常规程序无 CSR 指令，两种 march 产物一致）
+GEN_EXTRA=()
+MARCH=rv32im
+if [ "${RAND_TRAP:-0}" = 1 ]; then
+  GEN_EXTRA=(--trap)
+  MARCH=rv32im_zicsr
+  dir=build/rand/trap_seed_$seed
+else
+  dir=build/rand/seed_$seed
+fi
 mkdir -p "$dir"
 log="$dir/run.log"
 echo FAIL > "$dir/status"   # 默认失败，全流程走完后才置 PASS
 
 {
   echo "== seed $seed: 生成（instr_cnt=$INSTR） =="
-  "$PY" scripts/rand/gen.py --seed "$seed" --instr_cnt "$INSTR" --out "$dir/rand.S" || exit 1
+  "$PY" scripts/rand/gen.py --seed "$seed" --instr_cnt "$INSTR" --out "$dir/rand.S" \
+      "${GEN_EXTRA[@]}" || exit 1
 
   echo "== seed $seed: 汇编链接 =="
-  riscv64-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -nostdlib -nostartfiles \
+  riscv64-elf-gcc -march=$MARCH -mabi=ilp32 -mno-relax -nostdlib -nostartfiles \
       -T "$LINK_LD" "$dir/rand.S" -o "$dir/rand.elf" || exit 1
   riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin"
   python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex"

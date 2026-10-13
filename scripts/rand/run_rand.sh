@@ -15,10 +15,12 @@ TB=build/obj_soc/tb_soc
 # 并行执行；每个任务只打印一行结果，详细日志在各自 run.log
 printf '%s\n' $SEEDS | xargs -P "$JOBS" -I SEED bash scripts/rand/run_one.sh SEED
 
-# 按状态文件汇总（与任务完成顺序无关）
+# 按状态文件汇总（与任务完成顺序无关）；陷阱模式产物目录前缀不同
+PREFIX=seed_
+[ "${RAND_TRAP:-0}" = 1 ] && PREFIX=trap_seed_
 pass=0; fail=0; failed=()
 for seed in $SEEDS; do
-  if [ "$(cat build/rand/seed_$seed/status 2>/dev/null)" = "PASS" ]; then
+  if [ "$(cat build/rand/${PREFIX}$seed/status 2>/dev/null)" = "PASS" ]; then
     pass=$((pass+1))
   else
     fail=$((fail+1)); failed+=("$seed")
@@ -26,8 +28,8 @@ for seed in $SEEDS; do
 done
 
 echo "----------------------------------------"
-echo "随机测试: $pass 通过, $fail 失败, 共 $((pass+fail)) 种子（instr_cnt=${RAND_INSTR:-10000}）"
+echo "随机测试: $pass 通过, $fail 失败, 共 $((pass+fail)) 种子（instr_cnt=${RAND_INSTR:-10000}，RAND_TRAP=${RAND_TRAP:-0}）"
 if [ $fail -ne 0 ]; then
-  printf '失败种子: %s（日志 build/rand/seed_*/run.log）\n' "${failed[*]}"
+  printf '失败种子: %s（日志 build/rand/${PREFIX}*/run.log）\n' "${failed[*]}"
   exit 1
 fi

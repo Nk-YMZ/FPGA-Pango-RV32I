@@ -37,6 +37,7 @@ make test    # 自研单元 + 核心冒烟 + 集成测试
 make act     # 官方 ISA 合规测试（47 项）
 make rtests  # 官方 riscv-tests rv32mi 机器模式特权测试（8 项）
 make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
+make randtrap # 同步陷阱随机化（注入 ecall/非法指令/非对齐，Sail 裁决陷入现场）
 make bench   # CoreMark 跑分（周期数，逐次可比）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint

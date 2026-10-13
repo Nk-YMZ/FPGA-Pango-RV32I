@@ -19,6 +19,7 @@ SECTIONS
   .region    : { *(.region_*) }      /* pygen 随机数据页 */
   .user_stack : { *(.user_stack*) }  /* pygen 用户栈 */
   .pango_sig : { *(.pango_sig*) }    /* 寄存器转储区（gen.py gen_test_done） */
+  .pango_trap : { *(.pango_trap*) }  /* 陷阱模式：保存区/非对齐缓冲/陷入日志 */
   end_signature = .;
 
   /DISCARD/ : { *(.comment) *(.riscv.attributes) }
