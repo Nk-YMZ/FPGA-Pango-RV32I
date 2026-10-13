@@ -165,10 +165,21 @@ _start:
 2:  j    main_fail              # 不应到达
 3:
 
+    # ---- 15. MEM 级故障与乘除进 EX 同拍：陷入不得被乘除停顿吞掉 ----
+    # sw 到 MEM 级时 div 恰好进 EX 拉起乘除停顿——曾有 bug：停顿压住 trap_mem
+    # 的重定向，故障指令离开 MEM 后陷入永久丢失（randtrap seed 1 检出）
+    SET_EXP 6, 85
+    li   t4, 123456
+    li   t5, -789
+    SET_MEPC
+    sw   t4, 85(x0)             # 非对齐 store（MEM 级故障）
+    div  t6, t4, t5             # 更年轻，被冲刷；handler 跳过 sw 后重执行
+    CHK  t6, (123456 / -789) & 0xFFFFFFFF   # 冲刷重执行的 div 结果完整
+
     # ---- 全部陷阱次数核对（不含结尾哨兵）----
     la   t0, s_count
     lw   t0, 0(t0)
-    CHK  t0, 15
+    CHK  t0, 16
 
     # ---- 结尾：哨兵 ecall 触发 handler 写 tohost=1 ----
     la   t0, g_cause

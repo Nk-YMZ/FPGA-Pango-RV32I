@@ -456,9 +456,16 @@ module core #(
   wire [31:0] muldiv_result;
   // start 须等 !stall：访存等待期间前递数据可能尚未就绪（如 load 走 2 拍
   // 回退路径时，冻结拍的前递输出是存储器尚未出数的陈旧值），停顿解除拍
-  // 操作数才稳定，此时发起才能保证锁存正确
-  wire        muldiv_start   = is_muldiv_e && !muldiv_busy && !muldiv_done && !stall && !halted;
-  assign      muldiv_stall   = is_muldiv_e && !muldiv_done && !halted;
+  // 操作数才稳定，此时发起才能保证锁存正确。
+  // start/stall 还须让位于 trap_mem：年长的故障访存在 MEM 级只停留一拍，
+  // 若因乘除停顿压住陷入（pc_next 中 stall_young 优先于 trap_mem），故障随
+  // 指令离开 MEM 级而消失，陷入被永久吞掉。巧合窗口只有乘除进 EX 的一拍
+  // （停顿期间 MEM 级只有气泡）：故障拍不启动、不停顿，陷入正常执行，EX 级
+  // 的乘除指令作为更年轻指令被冲刷，handler 返回后重取执行（单元未启动，无
+  // 残留状态）。
+  wire        muldiv_start   = is_muldiv_e && !muldiv_busy && !muldiv_done && !stall
+                               && !halted && !trap_mem;
+  assign      muldiv_stall   = is_muldiv_e && !muldiv_done && !halted && !trap_mem;
   wire        muldiv_consume = is_muldiv_e && muldiv_done && !stall && !halted;
   assign      stall_young    = stall || muldiv_stall;
 
@@ -633,9 +640,12 @@ module core #(
   end
 
   // MEM 级故障：非对齐或访问未映射地址。mtvec 已配置 → 标准陷入（冲刷
-  // IF/ID/EX，mepc=本条 pc，mtval=访存地址）；未配置 → 停机（见停机控制）
+  // IF/ID/EX，mepc=本条 pc，mtval=访存地址）；未配置 → 停机（见停机控制）。
+  // !stall 与 trap_ex/trap_cti 对齐：访存/取指停顿期间 MEM 级指令被冻结不走，
+  // 停顿解除后 mem_fault 仍成立，陷入只是延迟不丢失；门控避免停顿期间
+  // trap_en 每拍重复写 CSR（mstatus.MPIE←MIE 二次执行会把已保存的 MPIE 清 0）。
   wire mem_fault = (mem_req && misaligned) || (mem_acc && dmem_err);
-  assign trap_mem = mem_fault && mtvec_valid && !halted;
+  assign trap_mem = mem_fault && mtvec_valid && !halted && !stall;
 
   // MEM 级指令的写回值（同时用于向 EX 前递）
   assign exmem_fwd_data = (exmem_ctrl.wb_src == WB_MEM) ? load_data :
