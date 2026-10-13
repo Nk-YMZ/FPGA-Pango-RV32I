@@ -39,10 +39,11 @@
   CPU 与存储器类型解耦；指令口提前一拍送地址，取指无性能损失；
   数据口 load 地址经预取口提前一拍预采样，命中时 2 拍读缩为 1 拍，
   地址线被占用时回退 2 拍路径，外设握手时序不变
-- M 态特权子集（Zicsr + 异常/中断，rtl/csr_file.sv）：mstatus/misa/mie/mip/
-  mtvec/mepc/mcause/mtval/mscratch 可读写（misa 为 RV32IM 常量、写按 WARL
-  忽略）+ mvendorid/marchid/mimpid/mhartid 只读 ID 组（写尝试判非法），
-  EX 级读改写（无 CSR 数据相关）。
+- M 态异常/中断**最小子集**（Zicsr，rtl/csr_file.sv；实现边界见下方
+  「特权架构边界」，勿理解为完整异常/中断体系）：mstatus（仅 MIE/MPIE
+  可写，MPP 硬连 11）/misa（RV32IM 常量、写按 WARL 忽略）/mie/mip/
+  mtvec/mepc/mcause/mtval/mscratch + mvendorid/marchid/mimpid/mhartid
+  只读 ID 组（写尝试判非法），EX 级读改写（无 CSR 数据相关）。
   同步异常精确陷入：ecall(11)/ebreak(3)/非法指令(2) 在 ID 级发现、随标记
   到 EX 级触发，非对齐 load/store(4/6) 与未映射总线(5/7) 在 MEM 级触发，
   分支/跳转目标非对齐(0) 在 EX 级触发（跳转撤销、link 不写回），
@@ -52,8 +53,32 @@
   陷入优先级 MEM 故障 > EX 异常 > 中断 > 分支重定向；mtvec 支持
   direct/vectored；MRET 恢复 mstatus.MIE；WFI 真睡眠（mip&mie 非零唤醒，
   不看 MIE）。**停机兼容**：mtvec 从未被配置（粘性 mtvec_valid=0）时维持
-  旧停机行为与原因码（ecall(1)/ebreak(2)/非法指令(3)/非对齐(4)/总线(5)），
-  既有测试与 ACT/rand/bench 流程不受影响；FENCE/FENCE.I 为 NOP
+  旧停机行为与原因码（ecall(1)/ebreak(2)/非法指令(3)/非对齐(4)/总线(5)/
+  取指非对齐(6)），既有测试与 ACT/rand/bench 流程不受影响；
+  FENCE/FENCE.I 为 NOP
+
+**特权架构边界（明确未实现项，防止误读为完整异常/中断体系）**
+
+当前实现为**仅机器模式（M 态）的最小异常/中断子集**，面向应用中断驱动
+需求与 rv32mi 合规，不追求完整特权架构。以下均为未实现项：
+
+- S/U 特权级及全部相关机制（medeleg/mideleg、stvec/scounteren、sret/uret、
+  U/S 态 ecall 原因码 8/9 等）
+- 取指访问错误异常（cause 1）：取指口无越界检测，pc 越出 RAM 译码窗口时
+  静默回绕而非陷入（已知限制；数据口访存越界已有 cause 5/7）
+- Zicntr/Zihpm（cycle/time/instret CSR）与 mcountinhibit/mcounteren；
+  周期计时由 MMIO 外设（0x1000_2000）承担
+- PMP、Sdtrig 触发器与调试模式、Rnmi（NMI）、hypervisor 扩展
+- mstatus 其余字段（MPRV/TW/TSR/TVM/FS/VS/XS 等均不存在）
+- PLIC/CLIC 中断控制器与可编程优先级（外部中断单线电平聚合进 MEIP，
+  软件读外设状态判源；优先级固定 MEI>MSI>MTI）
+- 中断嵌套无双陷阱/优先级硬件机制：handler 内二次陷入覆盖 mepc/mcause
+  （规范允许，需软件自行保存）；MIE/MPIE 机制支持软件保存 mepc 后重开
+  MIE 实现嵌套，但**无测试覆盖**
+- 验证缺口：riscv-dv 特权随机扩展、中断时序 fuzz 未做；中断正确性目前
+  仅由自研场景测试覆盖（rv32mi 不含中断用例）
+- 停机兼容（mtvec 未配置时停机报码）是仿真测试设施，**不是** RISC-V
+  标准行为，软件配置 mtvec 后自动失效
 
 **验证状态：**
 
@@ -201,7 +226,7 @@ dtb 地址差异及其兜底理由见该文件头注释。
 
 ### 已立项：优化迭代（按序逐项实施）
 
-1. ~~**异常/中断体系**~~（已完成）：应用需要定时器与外设中断支撑响应时间统计与超时识别；建立异常/中断机制使应用可中断驱动。特权合规验证改用官方 riscv-tests rv32mi 套件 + riscv-dv 特权随机测试扩展（已核实：ACT4 特权套件全部要求 Sv 虚存或 PMP，无 M-only 套件可对接）；以功能验收为主，允许预期内性能回退但须说明。按三个原子化迭代实施：
+1. ~~**异常/中断体系（M 态最小子集）**~~（已完成）：面向应用中断驱动需求（定时器与外设中断支撑响应时间统计与超时识别）的 M 态异常/中断子集已落地。注意：这**不是**完整异常/中断体系——S/U 特权级、PMP、调试、计数器 CSR、PLIC 等均未实现，边界见「现状·特权架构边界」；是否扩展等用户明确指令。特权合规验证用官方 riscv-tests rv32mi 套件（已核实：ACT4 特权套件全部要求 Sv 虚存或 PMP，无 M-only 套件可对接）。按三个原子化迭代实施：
    1. ~~Zicsr + M 态 CSR 堆 + MRET~~（已完成）
    2. ~~同步异常陷入（ecall/ebreak/非法指令/非对齐/总线错误 → mtvec 陷入；mtvec 未配置时维持停机兼容）~~（已完成）
    3. ~~中断（mtimer 定时器 + UART/GPIO 中断源 + 中断陷入/恢复 + WFI）~~（已完成）
