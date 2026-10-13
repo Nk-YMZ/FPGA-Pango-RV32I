@@ -39,11 +39,14 @@
   CPU 与存储器类型解耦；指令口提前一拍送地址，取指无性能损失；
   数据口 load 地址经预取口提前一拍预采样，命中时 2 拍读缩为 1 拍，
   地址线被占用时回退 2 拍路径，外设握手时序不变
-- M 态特权子集（Zicsr + 异常/中断，rtl/csr_file.sv）：mstatus/mie/mip/mtvec/
-  mepc/mcause/mtval/mscratch 八个 CSR，EX 级读改写（无 CSR 数据相关）。
+- M 态特权子集（Zicsr + 异常/中断，rtl/csr_file.sv）：mstatus/misa/mie/mip/
+  mtvec/mepc/mcause/mtval/mscratch 可读写（misa 为 RV32IM 常量、写按 WARL
+  忽略）+ mvendorid/marchid/mimpid/mhartid 只读 ID 组（写尝试判非法），
+  EX 级读改写（无 CSR 数据相关）。
   同步异常精确陷入：ecall(11)/ebreak(3)/非法指令(2) 在 ID 级发现、随标记
   到 EX 级触发，非对齐 load/store(4/6) 与未映射总线(5/7) 在 MEM 级触发，
-  mtval 记录指令编码或访存地址；中断 MTI/MSI/MEI（优先级 MEI>MSI>MTI）
+  分支/跳转目标非对齐(0) 在 EX 级触发（跳转撤销、link 不写回），
+  mtval 记录指令编码、访存地址或目标地址；中断 MTI/MSI/MEI（优先级 MEI>MSI>MTI）
   在 EX 级采样，仅当 EX 级含未退休指令且流水线流动时触发（乘除停顿期间
   不采样，延迟最多一个除法周期），mepc=本条 pc、handler 返回后重执行；
   陷入优先级 MEM 故障 > EX 异常 > 中断 > 分支重定向；mtvec 支持

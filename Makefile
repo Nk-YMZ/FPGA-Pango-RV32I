@@ -61,7 +61,7 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 SOC_TB := $(BUILD)/obj_soc/tb_soc
 HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_trap.hex \
             test_irq.hex test_fault_csr.hex test_fault_illegal.hex \
-            test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
+            test_fault_misaligned.hex test_fault_bus.hex test_fault_fetchmis.hex test_ebreak.hex)
 
 integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d
@@ -76,6 +76,7 @@ integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_bus.hex +EXPECT=5
+	$(SOC_TB) +HEX=$(BUILD)/test_fault_fetchmis.hex +EXPECT=6
 	$(SOC_TB) +HEX=$(BUILD)/test_ebreak.hex +EXPECT=2
 	@echo "===== 集成测试全部通过 ====="
 

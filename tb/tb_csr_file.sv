@@ -230,7 +230,16 @@ module tb_csr_file;
     end
     mtip_i = 0;
 
-    if (errors == 0) $display("tb_csr_file: PASS (42 项检查)");
+    // ---- misa / 只读 ID 组：常量读出，misa 写忽略 ----
+    chk_rd(12'h301, 32'h4000_1100, "misa 常量（RV32IM）");
+    wr(12'h301, 32'hFFFF_FFFF);          // 写忽略
+    chk_rd(12'h301, 32'h4000_1100, "misa 写忽略");
+    chk_rd(12'hF11, 32'h0000_0000, "mvendorid 读 0");
+    chk_rd(12'hF12, 32'h0000_0000, "marchid 读 0");
+    chk_rd(12'hF13, 32'h0000_0000, "mimpid 读 0");
+    chk_rd(12'hF14, 32'h0000_0000, "mhartid 读 0");
+
+    if (errors == 0) $display("tb_csr_file: PASS (48 项检查)");
     else             $fatal(1, "tb_csr_file: FAILED (%0d 项错误)", errors);
     $finish;
   end

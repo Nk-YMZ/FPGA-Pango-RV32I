@@ -181,9 +181,10 @@ module decoder (
           end
           // Zicsr：CSRRW/CSRRS/CSRRC 及立即数型（funct3[2] 区分寄存器/uimm5 源）
           3'b001, 3'b010, 3'b011, 3'b101, 3'b110, 3'b111: begin
-            // 仅实现 M 态基本 CSR（与 rtl/csr_file.sv 集合一致），其余地址非法；
-            // 已实现 CSR 均不在只读区（addr[11:10]!=11），成员检查即覆盖只读规则
+            // 写尝试判定：CSRRW(I) 恒写；CSRRS/CSRRC 源非零才写
+            // （寄存器型 rs1 与立即数型 uimm 同为 instr[19:15]）
             case (instr[31:20])
+              // 可读写组（与 rtl/csr_file.sv 集合一致）
               12'h300, 12'h304, 12'h305, 12'h340,
               12'h341, 12'h342, 12'h343, 12'h344: begin
                 ctrl.is_csr    = 1'b1;
@@ -192,6 +193,28 @@ module decoder (
                 ctrl.reg_write = 1'b1;     // 写回旧 CSR 值（EX 级替换 exmem_alu）
                 ctrl.wb_src    = WB_ALU;
                 imm = {20'd0, instr[31:20]};   // CSR 地址随 imm 携带到 EX 级
+              end
+              // misa：只读，写按 WARL 忽略（不陷入），任何操作合法
+              12'h301: begin
+                ctrl.is_csr    = 1'b1;
+                ctrl.csr_imm   = funct3[2];
+                ctrl.funct3    = funct3;
+                ctrl.reg_write = 1'b1;
+                ctrl.wb_src    = WB_ALU;
+                imm = {20'd0, instr[31:20]};
+              end
+              // 只读 ID 组（mvendorid/marchid/mimpid/mhartid）：读合法，写尝试非法
+              12'hF11, 12'hF12, 12'hF13, 12'hF14: begin
+                if (funct3[1:0] == 2'b01 || instr[19:15] != 5'd0) begin
+                  ctrl.illegal = 1'b1;
+                end else begin
+                  ctrl.is_csr    = 1'b1;
+                  ctrl.csr_imm   = funct3[2];
+                  ctrl.funct3    = funct3;
+                  ctrl.reg_write = 1'b1;
+                  ctrl.wb_src    = WB_ALU;
+                  imm = {20'd0, instr[31:20]};
+                end
               end
               default: ctrl.illegal = 1'b1;
             endcase

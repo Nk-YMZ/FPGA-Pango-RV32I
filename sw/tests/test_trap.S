@@ -120,10 +120,44 @@ _start:
     SET_EXP 11, 0
     ecall
 
+    # ---- 12. 取指目标非对齐（jalr）：撤销跳转、link 不写回、cause=0 ----
+    SET_EXP 0, 0
+    la   t3, 1f
+    addi t3, t3, 2              # 非对齐目标 = 1f+2
+    la   t4, g_tval
+    sw   t3, 0(t4)
+    li   t2, 0                  # link 监视：必须保持 0
+    SET_MEPC
+    jalr t2, 0(t3)
+1:  CHK  t2, 0                  # link 未被写回
+
+    # ---- 13. 取指目标非对齐（jal）：同上 ----
+    SET_EXP 0, 0
+    la   t4, g_tval
+    la   t5, 1f+2
+    sw   t5, 0(t4)
+    li   t2, 0
+    SET_MEPC
+    jal  t2, 1f+2
+1:  CHK  t2, 0
+
+    # ---- 14. 取指目标非对齐（taken 分支）：cause=0；不 taken 不陷入 ----
+    SET_EXP 0, 0
+    la   t4, g_tval
+    la   t5, 1f+2
+    sw   t5, 0(t4)
+    SET_MEPC
+    beqz x0, 1f+2
+1:
+    bnez x0, 2f+2               # 不 taken，不得陷入
+    j    3f
+2:  j    main_fail              # 不应到达
+3:
+
     # ---- 全部陷阱次数核对（不含结尾哨兵）----
     la   t0, s_count
     lw   t0, 0(t0)
-    CHK  t0, 11
+    CHK  t0, 14
 
     # ---- 结尾：哨兵 ecall 触发 handler 写 tohost=1 ----
     la   t0, g_cause

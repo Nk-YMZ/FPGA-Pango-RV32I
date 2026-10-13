@@ -30,15 +30,16 @@ package core_pkg;
     WB_PC4     // PC+4（JAL/JALR 保存返回地址）
   } wb_src_t;
 
-  // 停机原因。本阶段不实现完整异常体系，遇到无法继续执行的情况
+  // 停机原因。mtvec 未配置的程序遇到无法继续执行的情况
   // 统一停机并通过 halt_code 报告原因，绝不静默当成正常执行。
   typedef enum logic [2:0] {
     HALT_NONE     = 3'd0,
     HALT_ECALL    = 3'd1,   // 程序正常结束
     HALT_EBREAK   = 3'd2,   // 程序断言失败 / 调试断点
-    HALT_ILLEGAL  = 3'd3,   // 非法指令（含未实现的 CSR 指令）
+    HALT_ILLEGAL  = 3'd3,   // 非法指令（含未实现/只读 CSR 的非法访问）
     HALT_MISALIGN = 3'd4,   // 非对齐访存
-    HALT_BUS      = 3'd5    // 访问未映射地址
+    HALT_BUS      = 3'd5,   // 访问未映射地址
+    HALT_FETCH_MIS = 3'd6   // 分支/跳转目标非对齐（取指地址非对齐）
   } halt_code_t;
 
   // 译码器输出的控制信号包

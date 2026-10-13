@@ -52,6 +52,7 @@ module csr_file (
 
   // M 态 CSR 地址
   localparam logic [11:0] CSR_MSTATUS  = 12'h300;
+  localparam logic [11:0] CSR_MISA     = 12'h301;
   localparam logic [11:0] CSR_MIE      = 12'h304;
   localparam logic [11:0] CSR_MTVEC    = 12'h305;
   localparam logic [11:0] CSR_MSCRATCH = 12'h340;
@@ -59,6 +60,13 @@ module csr_file (
   localparam logic [11:0] CSR_MCAUSE   = 12'h342;
   localparam logic [11:0] CSR_MTVAL    = 12'h343;
   localparam logic [11:0] CSR_MIP      = 12'h344;
+  localparam logic [11:0] CSR_MVENDORID = 12'hF11;
+  localparam logic [11:0] CSR_MARCHID   = 12'hF12;
+  localparam logic [11:0] CSR_MIMPID    = 12'hF13;
+  localparam logic [11:0] CSR_MHARTID   = 12'hF14;
+
+  // misa 只读常量：MXL=01（RV32）+ I(8) + M(12)。写按 WARL 忽略。
+  localparam logic [31:0] MISA_VALUE = 32'h4000_1100;
 
   logic        mstatus_mie, mstatus_mpie;
   logic        mie_msie, mie_mtie, mie_meie;
@@ -95,6 +103,10 @@ module csr_file (
       CSR_MCAUSE:   rdata = {mcause_intr, 26'd0, mcause_code};
       CSR_MTVAL:    rdata = mtval_r;
       CSR_MIP:      rdata = {20'd0, meip_i, 3'd0, mtip_i, 3'd0, mip_msip, 3'd0};
+      CSR_MISA:     rdata = MISA_VALUE;
+      // 只读 ID 组（未分配厂商/架构/实现编号，hart 0），读 0；
+      // 写尝试由译码级判非法，不会到达
+      CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID, CSR_MHARTID: rdata = 32'd0;
       default:      rdata = 32'd0;   // 地址合法性已在译码级过滤，不会到达
     endcase
   end

@@ -124,6 +124,24 @@ module tb_decoder;
     instr = 32'h7C03_12F3; #1;
     if (!(ctrl.illegal)) fail("未实现 CSR 应判非法");
 
+    // csrr t0, misa（只读，读合法）
+    instr = 32'h3010_22F3; #1;
+    if (!(ctrl.is_csr && !ctrl.csr_imm && !ctrl.illegal && ctrl.funct3 == 3'b010
+          && imm == 32'h301 && rs1 == 5'd0 && rd == 5'd5)) fail("CSRR MISA");
+
+    // csrwi misa, 1（misa 写按 WARL 忽略，合法）
+    instr = 32'h3010_D073; #1;
+    if (!(ctrl.is_csr && ctrl.csr_imm && !ctrl.illegal && ctrl.funct3 == 3'b101
+          && imm == 32'h301 && rs1 == 5'd1 && rd == 5'd0)) fail("CSRRWI MISA");
+
+    // csrr t0, mhartid（只读 ID，读合法）
+    instr = 32'hF140_22F3; #1;
+    if (!(ctrl.is_csr && !ctrl.illegal && imm == 32'hF14 && rs1 == 5'd0)) fail("CSRR MHARTID");
+
+    // csrrw t0, mvendorid, t1（只读 ID，写尝试 → illegal）
+    instr = 32'hF113_12F3; #1;
+    if (!(ctrl.illegal)) fail("写只读 ID CSR 应判非法");
+
     // 未实现的 SYSTEM 编码（funct3=000 非常见指令）→ illegal
     instr = 32'h0000_F073; #1;
     if (!(ctrl.illegal)) fail("非法 SYSTEM 编码");
@@ -136,7 +154,7 @@ module tb_decoder;
     instr = 32'h0083_3283; #1;
     if (!(ctrl.illegal)) fail("非法 LOAD funct3");
 
-    if (errors == 0) $display("tb_decoder: PASS (27 项检查)");
+    if (errors == 0) $display("tb_decoder: PASS (31 项检查)");
     else             $fatal(1, "tb_decoder: FAILED (%0d 项错误)", errors);
     $finish;
   end
