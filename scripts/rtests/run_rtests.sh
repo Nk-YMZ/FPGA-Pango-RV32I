@@ -43,8 +43,8 @@ for t in $TESTS; do
   fi
   ${RISCV}gcc -march=$MARCH -mabi=ilp32 -nostdlib -nostartfiles \
       $INCLUDES -T scripts/rtests/link.ld "$src" -o "$elf" || exit 1
-  ${RISCV}objcopy -O binary "$elf" "$BUILD/$t.bin"
-  python3 scripts/bin2hex.py "$BUILD/$t.bin" "$hex"
+  ${RISCV}objcopy -O binary "$elf" "$BUILD/$t.bin" || exit 1
+  python3 scripts/bin2hex.py "$BUILD/$t.bin" "$hex" || exit 1
   tohost=$(${RISCV}nm "$elf" | awk '/[[:space:]]tohost$/{print $1}')
   log="$BUILD/$t.log"
   "$TB" +HEX="$hex" +TOHOST="$tohost" > "$log" 2>&1

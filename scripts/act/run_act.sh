@@ -24,8 +24,10 @@ fi
 pass=0; fail=0; failed=()
 for elf in "${ELFS[@]}"; do
   name=$(basename "$elf" .elf)
-  riscv64-elf-objcopy -O binary "$elf" build/act_tmp.bin
-  python3 scripts/bin2hex.py build/act_tmp.bin build/act_tmp.hex
+  # 基础设施失败立即中止：objcopy 失败会让 bin2hex 转换上一个测试的
+  # 陈旧 bin（act_tmp 为共用临时文件），把环境问题伪装成签名分歧
+  riscv64-elf-objcopy -O binary "$elf" build/act_tmp.bin || exit 1
+  python3 scripts/bin2hex.py build/act_tmp.bin build/act_tmp.hex || exit 1
   tohost=$(riscv64-elf-nm "$elf" | awk '/ tohost$/{print $1}')
   if "$TB" "+HEX=build/act_tmp.hex" "+TOHOST=$tohost" > "$LOG_DIR/$name.log" 2>&1 \
      && grep -q "ACT-PASS" "$LOG_DIR/$name.log"; then

@@ -54,8 +54,8 @@ if [ "${RAND_IRQ:-0}" = 1 ]; then
         -o "$dir/rand.elf" || exit 1
     $GCC -march=rv32im_zicsr -T "$LINK_LD" "$dir/rand.S" \
         -o "$dir/rand_sail.elf" || exit 1
-    riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin"
-    python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex"
+    riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin" || exit 1
+    python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex" || exit 1
     extract_syms "$dir/rand.elf" || exit 1
     [ -n "$irq_cnt" ] || { echo "符号缺失（pango_irq_count）"; exit 1; }
 
@@ -119,8 +119,8 @@ echo FAIL > "$dir/status"   # 默认失败，全流程走完后才置 PASS
 
   echo "== seed $seed: 汇编链接 =="
   $GCC -march=$MARCH -T "$LINK_LD" "$dir/rand.S" -o "$dir/rand.elf" || exit 1
-  riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin"
-  python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex"
+  riscv64-elf-objcopy -O binary "$dir/rand.elf" "$dir/rand.bin" || exit 1
+  python3 scripts/bin2hex.py "$dir/rand.bin" "$dir/rand.hex" || exit 1
   extract_syms "$dir/rand.elf" || exit 1
 
   echo "== seed $seed: Sail 参考运行 =="
