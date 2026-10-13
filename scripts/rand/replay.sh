@@ -14,16 +14,62 @@
 #   原 dut.sig 与 run.log 保持不动；也不改 status 文件（归 run_rand 全量流程管）。
 #
 # 用法：bash scripts/rand/replay.sh <种子> [更多种子...]
+# 中断模式（层 B）：RAND_IRQ=1 bash scripts/rand/replay.sh <种子> —— 复核
+# build/rand/irq_seed_N/，重放 run A（无注入）与 run B（保留的 irq.plan），
+# 产物为 dut_replay.sig / dut_irq_replay.sig / replay.log
 set -u
 cd "$(dirname "$0")/../.."   # 仓库根目录
 
 TB=build/obj_soc/tb_soc
 
-[ $# -ge 1 ] || { echo "用法: $0 <种子> [更多种子...]" >&2; exit 1; }
+[ $# -ge 1 ] || { echo "用法: $0 <种子> [更多种子...]（RAND_IRQ=1 复核中断模式）" >&2; exit 1; }
 [ -x "$TB" ] || { echo "请先构建仿真器（make integ 或 make act 均可触发）" >&2; exit 1; }
 
 fail=0
 for seed in "$@"; do
+  if [ "${RAND_IRQ:-0}" = 1 ]; then
+    dir=build/rand/irq_seed_$seed
+    log="$dir/replay.log"
+    if [ ! -d "$dir" ]; then
+      echo "  FAIL  seed=$seed（$dir 不存在，该种子尚未跑过）"
+      fail=1
+      continue
+    fi
+    if (
+      set -e
+      for f in rand.elf rand.hex ref.sig irq.plan; do
+        [ -f "$dir/$f" ] || { echo "缺少 $dir/$f，无法复核"; exit 1; }
+      done
+      sig_start=$(riscv64-elf-nm "$dir/rand.elf" | awk '/ begin_signature$/{print $1}')
+      sig_end=$(riscv64-elf-nm "$dir/rand.elf" | awk '/ end_signature$/{print $1}')
+      tohost=$(riscv64-elf-nm "$dir/rand.elf" | awk '/ tohost$/{print $1}')
+      irq_cnt=$(riscv64-elf-nm "$dir/rand.elf" | awk '/ pango_irq_count$/{print $1}')
+      [ -n "$sig_start" ] && [ -n "$sig_end" ] && [ -n "$tohost" ] && [ -n "$irq_cnt" ] || \
+          { echo "符号缺失"; exit 1; }
+      nplan=$(wc -l < "$dir/irq.plan")
+
+      echo "== seed $seed: 中断模式定点复核（保留现场重放 run A + run B） =="
+      timeout 600 "$TB" "+HEX=$dir/rand.hex" "+TOHOST=$tohost" \
+          "+SIGSTART=$sig_start" "+SIGEND=$sig_end" "+SIGFILE=$dir/dut_replay.sig" \
+          "+IRQCNT=$irq_cnt" "+IRQEXP=1"
+      diff -q "$dir/ref.sig" "$dir/dut_replay.sig" >/dev/null || \
+          { echo "run A 签名仍不一致"; diff "$dir/ref.sig" "$dir/dut_replay.sig" | head -20; exit 1; }
+
+      timeout 600 "$TB" "+HEX=$dir/rand.hex" "+TOHOST=$tohost" \
+          "+SIGSTART=$sig_start" "+SIGEND=$sig_end" "+SIGFILE=$dir/dut_irq_replay.sig" \
+          "+IRQCNT=$irq_cnt" "+IRQEXP=$((1 + nplan))" "+IRQPLAN=$dir/irq.plan"
+      diff -q "$dir/ref.sig" "$dir/dut_irq_replay.sig" >/dev/null || \
+          { echo "run B 签名仍不一致"; diff "$dir/ref.sig" "$dir/dut_irq_replay.sig" | head -20; exit 1; }
+      echo "== seed $seed: 两轮签名一致，计数核对通过 =="
+    ) > "$log" 2>&1; then
+      echo "  PASS  seed=$seed"
+    else
+      echo "  FAIL  seed=$seed（日志 $log）"
+      fail=1
+    fi
+    continue
+  fi
+
   dir=build/rand/seed_$seed
   if [ ! -d "$dir" ]; then
     echo "  FAIL  seed=$seed（$dir 不存在，该种子尚未跑过）"

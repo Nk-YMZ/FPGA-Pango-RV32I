@@ -9,6 +9,10 @@
 // - 签名转储（随机测试用）：+SIGSTART=<起始> +SIGEND=<结束> +SIGFILE=<路径>，
 //   结束时把 dmem [起始,结束) 区间按每行一个 32 位十六进制字写出
 //   （与 Sail --test-signature 的输出格式一致）
+// - 中断透明性验证（层 B）：+IRQCNT=<计数器地址> 启用中断模式——关闭固定
+//   RX 激励（0xA5 字节会拉起 MEIP 干扰注入计数），结束时层级读取 handler
+//   陷入计数并与 +IRQEXP=<期望数> 核对（不等判 FAIL，防「中断根本没发生」
+//   的假通过）；+IRQPLAN=<计划文件> 按周期调度注入（见注入引擎注释）
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -42,6 +46,11 @@ module tb_soc;
   int mispredict_cnt;
   always @(posedge clk) if (dbg_mispredict) mispredict_cnt <= mispredict_cnt + 1;
 
+  // 周期计数（running 起算）：中断注入计划的周期基准，结束时打印供
+  // gen_plan.py 生成计划（run A 无注入基线实测总周期数）
+  int cycle_cnt;
+  always @(posedge clk) if (running) cycle_cnt <= cycle_cnt + 1;
+
   // ---- ACT tohost 监视（+TOHOST=<addr> 启用）----
   localparam int MEM_AW = $clog2(MEM_BYTES / 4);
 
@@ -55,6 +64,68 @@ module tb_soc;
   string trace_file;
   int    trace_fd;
   logic        running;      // 复位释放后置 1（避免与异步复位混用告警）
+
+  // ---- 中断注入引擎（层 B；plusarg 在主 initial 解析）----
+  // +IRQPLAN 计划每行 "<周期> <类型> [字节hex]"（gen_plan.py 生成）：
+  //   类型 0 = MTI：一次性沉积 poke mtimecmp = mtime+4。mtimecmp 平时仅在
+  //     总线写时被驱动，沉积赋值无真实驱动冲突（MULTIDRIVEN 主位置在
+  //     mtimer.sv，由 tb/waive_soc.vlt 精确豁免，仅用于 tb_soc 构建）；
+  //     handler 经总线写全 1 撤销 MTIP，poke 无需 release。
+  //   类型 1 = UART RX：从该周期起驱动 rxd 发一个字节（8N1，DIV=16 约 160
+  //     拍），收完 rx_valid 拉起 MEIP；handler 读 DATA 撤销。
+  // MSI 不经计划：由程序前导置位一次。计划间隔 >=700 拍（gen_plan.py 保证），
+  // UART 帧不会重叠；等周期用 negedge 避开与 posedge 采样的竞争。
+  localparam int PLAN_MAX = 512;
+  int    plan_cycle [PLAN_MAX];
+  int    plan_type  [PLAN_MAX];
+  int    plan_arg   [PLAN_MAX];
+  int    plan_n;
+  int    plan_done_cnt;
+  int    irq_cnt_addr;     // 非 0 = 中断模式（pango_irq_count 的 dmem 地址）
+  int    irq_exp;
+  string plan_file;
+
+  initial begin : irq_engine
+    int fd, c, t, b, n;
+    string line;
+    plan_n = 0;
+    plan_done_cnt = 0;
+    wait (rst_n);            // 等主 initial 完成 plusarg 解析
+    if (plan_file != "") begin
+      fd = $fopen(plan_file, "r");
+      if (fd == 0) $fatal(1, "tb_soc: 无法打开注入计划 %s", plan_file);
+      while ($fgets(line, fd) != 0) begin
+        // 先解两字段公共前缀（MTI 行无第三字段；Verilator $sscanf 对缺失
+        // 尾字段的行返回值不可靠，三段式一次解会丢 MTI 行）
+        n = $sscanf(line, "%d %d", c, t);
+        if (n == 2) begin
+          if (plan_n >= PLAN_MAX) $fatal(1, "tb_soc: 注入计划超过 %0d 条", PLAN_MAX);
+          b = 0;
+          if (t == 1 && $sscanf(line, "%d %d %h", c, t, b) != 3)
+            $fatal(1, "tb_soc: 注入计划行格式错误（UART 注入缺字节值）: %s", line);
+          plan_cycle[plan_n] = c;
+          plan_type[plan_n]  = t;
+          plan_arg[plan_n]   = b;
+          plan_n++;
+        end
+      end
+      $fclose(fd);
+      $display("tb_soc: 注入计划 %0d 条（%s）", plan_n, plan_file);
+    end
+    for (int i = 0; i < plan_n; i++) begin
+      while (cycle_cnt < plan_cycle[i]) @(negedge clk);
+      if (plan_type[i] == 0) begin
+        dut.mtimer_i.mtimecmp = dut.mtimer_i.mtime + 64'd4;
+      end else begin
+        logic [7:0] ub;
+        ub = plan_arg[i][7:0];
+        uart_rxd = 1'b0; #(BIT_NS);
+        for (int k = 0; k < 8; k++) begin uart_rxd = ub[k]; #(BIT_NS); end
+        uart_rxd = 1'b1; #(BIT_NS);
+      end
+      plan_done_cnt++;
+    end
+  end
 
   always @(posedge clk) begin
     if (running && tohost_addr != 0 && !act_done) begin
@@ -85,13 +156,18 @@ module tb_soc;
 
   // ---- UART RX 激励：复位结束后发送 0xA5 ----
   // 注意：全局激励，对所有程序生效（test_isa 依赖它验证 RX 路径）；
-  // 新增测试若在早期读 UART，需知晓会收到这一固定字节
+  // 新增测试若在早期读 UART，需知晓会收到这一固定字节。
+  // 中断模式（+IRQCNT）下关闭：该字节收完后 rx_valid 长期置位，会成为
+  // 计划外 MEI 中断源，破坏注入计数核对；此模式下 RX 由注入计划驱动
   initial begin : rx_driver
     logic [7:0] b;
     b = 8'hA5;
     uart_rxd = 1'b1;
     wait (rst_n);
     #5000;
+    if (irq_cnt_addr != 0) begin
+      wait (0);   // 中断模式：永久挂起本激励（进程不再唤醒）
+    end
     uart_rxd = 1'b0; #(BIT_NS);
     for (int i = 0; i < 8; i++) begin uart_rxd = b[i]; #(BIT_NS); end
     uart_rxd = 1'b1; #(BIT_NS);
@@ -107,6 +183,7 @@ module tb_soc;
 
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
     mispredict_cnt = 0;
+    cycle_cnt = 0;
     errors = 0;
 
     if (!$value$plusargs("HEX=%s", hex)) hex = "build/test_isa.hex";
@@ -128,6 +205,13 @@ module tb_soc;
     $value$plusargs("SIGEND=%h", sig_end);
     if (!$value$plusargs("SIGFILE=%s", sig_file)) sig_file = "";
     if (!$value$plusargs("TRACELOG=%s", trace_file)) trace_file = "";
+    // 中断模式（层 B）：+IRQCNT 给 handler 陷入计数器地址（非 0 启用），
+    // +IRQEXP 给期望计数（含前导 MSI 一次），+IRQPLAN 给注入计划文件
+    if (!$value$plusargs("IRQCNT=%h", irq_cnt_addr)) irq_cnt_addr = 0;
+    if (!$value$plusargs("IRQEXP=%d", irq_exp)) irq_exp = -1;
+    if (!$value$plusargs("IRQPLAN=%s", plan_file)) plan_file = "";
+    if (irq_cnt_addr != 0 && irq_exp < 0)
+      $fatal(1, "tb_soc: 中断模式需同时给出 +IRQEXP=<期望计数>");
     trace_fd = 0;
     if (trace_file != "") begin
       trace_fd = $fopen(trace_file, "w");
@@ -158,7 +242,10 @@ module tb_soc;
     join_any
 
     @(posedge clk); #1;
-    $display("tb_soc: 停机原因码=%0d, 分支预测失败次数=%0d", halt_code, mispredict_cnt);
+    $display("tb_soc: 停机原因码=%0d, 分支预测失败次数=%0d, 周期数=%0d",
+             halt_code, mispredict_cnt, cycle_cnt);
+    if (plan_file != "")
+      $display("tb_soc: 注入执行 %0d/%0d 条", plan_done_cnt, plan_n);
 
     // 签名转储：dmem [sig_start, sig_end)，每行一个 32 位字（同 Sail --test-signature）
     if (sig_file != "") begin
@@ -186,6 +273,19 @@ module tb_soc;
       if (magic_en && gpio_out !== 32'(magic)) begin
         errors++;
         $display("FAIL: gpio_out=%h，期望 %h", gpio_out, magic);
+      end
+    end
+
+    // 中断计数核对（层 B）：handler 实际陷入数 == 期望（前导 MSI + 计划注入数）
+    // 不等即 FAIL——少了说明注入未生效（假通过），多了说明计划外中断
+    if (irq_cnt_addr != 0) begin
+      if (32'(dut.dmem_i.mem[irq_cnt_addr[MEM_AW+1:2]]) != 32'(irq_exp)) begin
+        errors++;
+        $display("FAIL: 中断计数 %0d，期望 %0d（注入未发生或计划外中断）",
+                 dut.dmem_i.mem[irq_cnt_addr[MEM_AW+1:2]], irq_exp);
+      end else begin
+        $display("tb_soc: 中断计数核对 %0d == %0d",
+                 dut.dmem_i.mem[irq_cnt_addr[MEM_AW+1:2]], irq_exp);
       end
     end
 

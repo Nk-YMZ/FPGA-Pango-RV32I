@@ -1,0 +1,10 @@
+`verilator_config
+// tb_soc 中断注入引擎（层 B）的精确告警豁免，仅用于 tb_soc 构建
+// （Makefile SOC_TB 规则传入）；make lint（纯 RTL）不带本文件，保持严格。
+//
+// 注入引擎对 dut.mtimer_i.mtimecmp 做一次性沉积 poke：该寄存器平时仅在
+// 总线写时被驱动（mtimer.sv 的 always_ff），poke 与 handler 的总线写
+// 在时序上不同时发生，无真实驱动冲突。MULTIDRIVEN 主告警位置在 mtimer.sv
+// （always_ff 写），tb 内联 pragma 无法覆盖，故用本文件按规则+文件+消息
+// 文本精确豁免——仅放行 mtimecmp 被其他进程（tb）写入这一情形。
+lint_off -rule MULTIDRIVEN -file "*/mtimer.sv" -match "*mtimecmp*"

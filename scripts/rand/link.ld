@@ -22,7 +22,13 @@ SECTIONS
   .pango_trap : { *(.pango_trap*) }  /* 陷阱模式：保存区/非对齐缓冲/陷入日志 */
   end_signature = .;
 
+  /* 中断模式（层 B）：handler 保存区/陷入计数/mcause 日志。
+     Sail 不执行中断 handler（无外部中断注入），这些写不进签名比对，
+     故本段必须位于签名区之外；计数由 tb 层级读取并与计划注入数核对。 */
+  .pango_irq : { *(.pango_irq*) }
+
   /DISCARD/ : { *(.comment) *(.riscv.attributes) }
 
   ASSERT(end_signature <= 0x00100000, "随机测试映像超出仿真 RAM（1MiB）；请减小 instr_cnt/stack_len")
+  ASSERT(. <= 0x00100000, "随机测试映像超出仿真 RAM（1MiB）；请减小 instr_cnt/stack_len")
 }

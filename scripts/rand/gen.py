@@ -18,9 +18,20 @@
 #    逐条执行同样的陷入与 handler，期望值完全由黄金参考产生，无任何手工
 #    推演的拍级行为。注入片段只触碰两个注入寄存器（已加入 pygen 保留集，
 #    随机流与定向流均不会使用），不干扰程序原有地址与状态。
+# 5. 中断模式（--irq，层 B 中断透明性验证）：随机程序加固定前导
+#    （mtvec/mscratch/mie/MIE/MSIP 初始化）与透明中断 handler——handler
+#    保存恢复所用寄存器（净效果零扰动）、计数、按 mcause 撤中断源后 mret
+#    重执行被打断指令。精确透明的中断打了和没打，程序最终架构状态逐位
+#    相同，因此期望值就是无注入运行的签名（由 Sail 裁决），与中断落在
+#    流水线哪个拍无关，零拍级推演。Sail 不响应 MSIP 软件写（已探针确认），
+#    handler 在 Sail 中不执行，故其保存区/计数/日志放在签名区之外
+#    （.pango_irq 段，见 link.ld）；计数由 tb 层级读取并与计划注入数核对。
+#    前导 mie 立即数用 #ifdef IRQ_FULL 区分：Sail 版仅 MSIE（Sail 的 CLINT
+#    在 MTIE+MIE 下会拉起 MTIP，已探针确认，不能进基线），RTL 版全使能；
+#    两种选择同为两条指令，地址布局一致。
 #
 # 用法（由 scripts/rand/run_rand.sh 调用）：
-#   gen.py --seed <N> --instr_cnt <N> --out <输出.S> [--trap [--trap_cnt N]] [-- <额外 pygen 参数>]
+#   gen.py --seed <N> --instr_cnt <N> --out <输出.S> [--trap [--trap_cnt N] | --irq] [-- <额外 pygen 参数>]
 #
 # 注意：上游 master（0d71c2b）gen_callstack 存在 bug（self.callstack_gen 未初始化），
 # 固定以 --num_of_sub_program=0 绕开（失去子程序调用覆盖，已知限制，见 AGENTS.md 待办 1）。
@@ -47,6 +58,76 @@ TRAP_MAX = 64   # 每个程序最大注入陷阱数（= 日志区容量，handle
 # 定向流都不会使用它们，注入覆写不会扰动程序原有状态与地址
 INJ_REG_PREF = (30, 31, 29, 28, 9, 8, 7, 6, 5, 13, 14, 15,
                 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27)
+
+# ================= 中断模式（--irq，层 B）常量与生成辅助 =================
+
+IRQ_LOG_MAX = 128   # 中断日志容量（计划注入数上限远小于此；溢出=中断风暴=硬失败）
+
+
+def irq_handler_lines():
+    """透明中断 handler 与配套数据段（固定文本；.pango_irq 段在签名区外）。
+    经 mscratch 交换保存恢复 t4/t5/t6，净效果零扰动；不改 mepc，mret 重执行
+    被打断的指令（该指令被冲刷时零副作用，重执行幂等）。按 mcause 撤中断源：
+    MTI 写 mtimecmp 全 1；MSI 清 MSIP；MEI 读 UART DATA 清 rx_valid。
+    未知 cause（含任何同步异常——常规随机程序不应产生）写 tohost=3 硬失败。
+    handler 不知道自己打断了哪条指令；其正确性由签名比对反向监督
+    （任何状态污染 = 签名分歧），计数断言（tb 侧）防「中断根本没发生」的假通过。"""
+    return [
+        ".section .text",
+        ".balign 4",
+        "pango_irq_handler:",
+        "    csrrw t6, mscratch, t6",      # t6=保存区基址（末尾换回，净效果零扰动）
+        "    sw    t5, 0(t6)",
+        "    sw    t4, 4(t6)",
+        "    lw    t5, 8(t6)",             # 陷入计数++
+        "    addi  t5, t5, 1",
+        "    sw    t5, 8(t6)",
+        "    lw    t5, 12(t6)",            # 日志写指针（记录 mcause 序列，调试用）
+        "    la    t4, pango_irq_log_end",
+        "    bgeu  t5, t4, pango_irq_overflow",
+        "    csrr  t4, mcause",
+        "    sw    t4, 0(t5)",
+        "    addi  t5, t5, 4",
+        "    sw    t5, 12(t6)",
+        "    li    t5, 0x80000007",
+        "    beq   t4, t5, pango_irq_mti",
+        "    li    t5, 0x80000003",
+        "    beq   t4, t5, pango_irq_msi",
+        "    li    t5, 0x8000000B",
+        "    beq   t4, t5, pango_irq_mei",
+        "    j     pango_irq_fail",          # 未知 cause（含同步异常）→ 硬失败
+        "pango_irq_mti:",                  # mtimecmp 写全 1，撤 MTIP
+        "    li    t5, 0x10003000",
+        "    li    t4, -1",
+        "    sw    t4, 8(t5)",
+        "    sw    t4, 12(t5)",
+        "    j     pango_irq_ret",
+        "pango_irq_msi:",                  # 清 MSIP
+        "    csrci mip, 8",
+        "    j     pango_irq_ret",
+        "pango_irq_mei:",                  # 读 UART DATA 清 rx_valid，撤 MEIP
+        "    li    t5, 0x10001000",
+        "    lw    t4, 0(t5)",
+        "pango_irq_ret:",
+        "    lw    t5, 0(t6)",
+        "    lw    t4, 4(t6)",
+        "    csrrw t6, mscratch, t6",
+        "    mret",
+        "pango_irq_overflow:",             # 日志溢出=计划外中断（风暴）
+        "pango_irq_fail:",
+        "    li    t4, 3",
+        "    sw    t4, tohost, t5",        # HTIF 载荷 3：tb 判失败
+        "    sw    x0, tohost+4, t5",
+        "1:  j     1b",
+        '.section .pango_irq,"aw",@progbits',
+        ".align 4",
+        ".globl pango_irq_count",
+        "pango_irq_save:  .word 0, 0",          # +0/+4 暂存 t5/t4
+        "pango_irq_count: .word 0",             # +8 陷入计数（tb 核对）
+        "pango_irq_logp:  .word pango_irq_log", # +12 日志写指针
+        f"pango_irq_log:   .rept {IRQ_LOG_MAX}; .4byte 0; .endr",
+        "pango_irq_log_end:",
+    ]
 
 
 def gen_illegal_enc(rng):
@@ -195,7 +276,7 @@ def skip_ranges(lines, i_main, i_done):
 def parse_own_args(argv):
     """分离本脚本报参与其余透传给 pygen 的参数。"""
     own = {"seed": None, "instr_cnt": 2000, "out": None,
-           "trap": False, "trap_cnt": None}
+           "trap": False, "trap_cnt": None, "irq": False, "irq_reg": None}
     passthrough = []
     i = 0
     while i < len(argv):
@@ -208,12 +289,16 @@ def parse_own_args(argv):
             own["out"] = argv[i + 1]; i += 2
         elif a == "--trap":
             own["trap"] = True; i += 1
+        elif a == "--irq":
+            own["irq"] = True; i += 1
         elif a == "--trap_cnt":
             own["trap_cnt"] = int(argv[i + 1]); i += 2
         else:
             passthrough.append(a); i += 1
     if own["seed"] is None or own["out"] is None:
-        sys.exit("用法: gen.py --seed N --instr_cnt N --out 文件.S [--trap [--trap_cnt N]] [额外 pygen 参数]")
+        sys.exit("用法: gen.py --seed N --instr_cnt N --out 文件.S [--trap [--trap_cnt N] | --irq] [额外 pygen 参数]")
+    if own["trap"] and own["irq"]:
+        sys.exit("--trap 与 --irq 互斥（同步陷阱与中断验证分两轮进行）")
     if own["trap"]:
         # 缺省密度约每 200 条指令一处注入；上限即日志区容量
         default_cnt = min(TRAP_MAX, max(8, own["instr_cnt"] // 200))
@@ -288,20 +373,46 @@ def main():
 
         def gen_init_section(self, hart):
             super().gen_init_section(hart)
-            if not own["trap"]:
-                return
-            # 陷阱模式初始化：mtvec → handler、mscratch → 保存区、日志指针。
-            # 位于 init_gpr 之后，覆写注入寄存器属程序行为，Sail 同样执行
-            i0, i1 = own["inj"]
             ind = pkg_ins.indent
-            self.instr_stream.extend((
-                f"{ind}la x{i0}, pango_trap_save",
-                f"{ind}la x{i1}, pango_trap_log",
-                f"{ind}sw x{i1}, 8(x{i0})",
-                f"{ind}csrw mscratch, x{i0}",
-                f"{ind}la x{i0}, pango_trap_handler",
-                f"{ind}csrw mtvec, x{i0}",
-            ))
+            if own["trap"]:
+                # 陷阱模式初始化：mtvec → handler、mscratch → 保存区、日志指针。
+                # 位于 init_gpr 之后，覆写注入寄存器属程序行为，Sail 同样执行
+                i0, i1 = own["inj"]
+                self.instr_stream.extend((
+                    f"{ind}la x{i0}, pango_trap_save",
+                    f"{ind}la x{i1}, pango_trap_log",
+                    f"{ind}sw x{i1}, 8(x{i0})",
+                    f"{ind}csrw mscratch, x{i0}",
+                    f"{ind}la x{i0}, pango_trap_handler",
+                    f"{ind}csrw mtvec, x{i0}",
+                ))
+            elif own["irq"]:
+                # 中断模式前导：mscratch → 保存区、mtvec → 透明 handler、
+                # mie/MIE 使能、MSIP 置位（前导 MSI 注入，全程序仅这一次）。
+                # mie 立即数用 #ifdef IRQ_FULL 区分：Sail 版仅 MSIE（Sail 的
+                # CLINT 在 MTIE+MIE 下会拉起 MTIP，不能进基线；已探针确认），
+                # RTL 版全使能；两种选择同为两条指令，地址布局一致。
+                # 位于 init_gpr 之后，覆写 irq_reg 属程序行为，双 ELF 同样执行
+                i0 = own["irq_reg"]
+                self.instr_stream.extend((
+                    f"{ind}la x{i0}, pango_irq_save",
+                    f"{ind}csrw mscratch, x{i0}",
+                    f"{ind}la x{i0}, pango_irq_handler",
+                    f"{ind}csrw mtvec, x{i0}",
+                    # mie 值两种选择必须同为两条指令：双 ELF 仅此处不同，
+                    # 指令条数不同会导致后续地址布局整体移位、签名不可比
+                    "#ifdef IRQ_FULL",
+                    f"{ind}lui x{i0}, 0x1",
+                    f"{ind}addi x{i0}, x{i0}, -1912",   # = 0x888：MTIE|MSIE|MEIE
+                    "#else",
+                    f"{ind}lui x{i0}, 0x0",
+                    f"{ind}addi x{i0}, x{i0}, 8",       # = 0x008：仅 MSIE
+                    "#endif",
+                    f"{ind}csrs mie, x{i0}",
+                    f"{ind}li x{i0}, 0x8",
+                    f"{ind}csrs mstatus, x{i0}",
+                    f"{ind}csrs mip, x{i0}",
+                ))
 
         def gen_test_done(self):
             # 结束序列：x0-x31 全量转储到签名区（pango_sig_begin 起 32 字），
@@ -365,12 +476,22 @@ def main():
         logging.info("陷阱模式：注入寄存器 x%d/x%d，计划注入 %d 处",
                      own["inj"][0], own["inj"][1], own["trap_cnt"])
 
+    if own["irq"]:
+        # 前导暂用寄存器：避开 sp/tp（栈与约定），其余随意——前导覆写属程序
+        # 行为，双 ELF（Sail/RTL）同样执行，签名一致。handler 自身经 mscratch
+        # 交换保存恢复，不占用任何程序寄存器，无需改动 pygen 保留集
+        avoid = {int(cfg.sp), int(cfg.tp)}
+        own["irq_reg"] = next(r for r in INJ_REG_PREF if r not in avoid)
+        logging.info("中断模式：前导寄存器 x%d", own["irq_reg"])
+
     asm = pango_asm_program_gen()
     asm.get_directed_instr_stream()
     asm.gen_program()
     if own["trap"]:
         inject_traps(asm.instr_stream, own)
         asm.instr_stream.extend(trap_handler_lines())
+    elif own["irq"]:
+        asm.instr_stream.extend(irq_handler_lines())
     asm.gen_test_file(own["out"])
     logging.info("生成完成: %s (seed=%d, instr_cnt=%d)", own["out"], own["seed"],
                  own["instr_cnt"])

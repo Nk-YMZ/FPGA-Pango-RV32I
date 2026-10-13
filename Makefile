@@ -23,7 +23,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap rtests
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests
 
 test: unit smoke integ
 
@@ -82,9 +82,10 @@ integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_ebreak.hex +EXPECT=2
 	@echo "===== 集成测试全部通过 ====="
 
-$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv
+# tb_soc 需要 waive_soc.vlt：注入引擎层级 poke mtimecmp 的 MULTIDRIVEN 精确豁免
+$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv tb/waive_soc.vlt
 	$(VERILATOR) $(VFLAGS) --trace-fst --Mdir $(BUILD)/obj_soc -o tb_soc \
-	    --top-module tb_soc $(RTL_SOC) tb/tb_soc.sv
+	    --top-module tb_soc tb/waive_soc.vlt $(RTL_SOC) tb/tb_soc.sv
 
 # C 测试程序：crt0 + main，O2 编译以覆盖更多指令形式
 $(BUILD)/test_isa.elf: sw/tests/test_isa.c sw/crt0.S sw/link.ld
@@ -133,6 +134,13 @@ rand: $(SOC_TB)
 # 产物目录 build/rand/trap_seed_N/，与常规模式隔离
 randtrap: $(SOC_TB)
 	RAND_TRAP=1 RAND_SEEDS="$(RAND_SEEDS)" RAND_INSTR=$(RAND_INSTR) bash scripts/rand/run_rand.sh
+
+# 中断透明性随机化（层 B）：常规随机程序 + 固定前导（mtvec/mie/MIE/MSIP）+
+# 透明中断 handler；同种子跑「Sail 基线 / RTL 无注入 / RTL 按计划注入」三轮，
+# 精确透明的中断打了和没打签名必须逐位相同，另核 handler 陷入计数 == 计划数。
+# 产物目录 build/rand/irq_seed_N/
+randirq: $(SOC_TB)
+	RAND_IRQ=1 RAND_SEEDS="$(RAND_SEEDS)" RAND_INSTR=$(RAND_INSTR) bash scripts/rand/run_rand.sh
 
 # ---------------- 官方 riscv-tests rv32mi（机器模式特权测试） ----------------
 # 适用 8 项（csr/illegal/ma_addr/ma_fetch/mcsr/sbreak/scall/shamt），
