@@ -136,7 +136,9 @@
 定点复核 `replay.sh`：`bash scripts/rand/replay.sh <种子> [更多种子...]`，
 不重生成程序，直接用 `build/rand/seed_<N>/` 保留的 `rand.hex` + `ref.sig`
 重跑 RTL 并比对签名；不覆盖原 `dut.sig`/`run.log`（复核产物为
-`dut_replay.sig`/`replay.log`）。用于修复后复核失败种子，详见迭代工作流程第 3 步。
+`dut_replay.sig`/`replay.log`）。陷阱模式 `RAND_TRAP=1`（复核 `trap_seed_<N>/`）、
+中断模式 `RAND_IRQ=1`（复核 `irq_seed_<N>/`，重放 run A + run B）。
+用于修复后复核失败种子，详见迭代工作流程第 3 步。
 
 同步陷阱随机化（`make randtrap`，RAND_TRAP=1 走同一流水线，产物目录
 `trap_seed_<N>/`）：gen.py `--trap` 模式在 main 程序段注入陷阱片段（ecall/ebreak/
@@ -224,7 +226,8 @@ dtb 地址差异及其兜底理由见该文件头注释。
    各层内容见「测试体系」表；后续新增测试层自动纳入本门禁，不再逐一修订本条）。
    任何失败先修复再继续，不得带病跑分。
    **随机层检出分歧时的强制复核顺序**：修复后必须先用出问题的原种子
-   复核通过（`bash scripts/rand/replay.sh <种子>`；中断模式为
+   复核通过（`bash scripts/rand/replay.sh <种子>`；陷阱模式为
+   `RAND_TRAP=1 bash scripts/rand/replay.sh <种子>`，中断模式为
    `RAND_IRQ=1 bash scripts/rand/replay.sh <种子>`），再跑对应层的全量。
    理由：replay 直接复用磁盘上的失败现场（同一程序必然复现，不受生成侧
    改动影响），而全量重生成只有生成链路完全未变才能复现同一程序；先复核
