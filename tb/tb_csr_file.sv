@@ -13,12 +13,20 @@ module tb_csr_file;
   logic [31:0] wdata;
   logic        mret;
   wire  [31:0] mepc;
+  logic        trap_en, trap_intr;
+  logic [4:0]  trap_code;
+  logic [31:0] trap_mepc, trap_tval;
+  wire  [31:0] trap_pc;
+  wire         mtvec_valid;
 
   csr_file dut (
     .clk(clk), .rst_n(rst_n),
     .raddr(raddr), .rdata(rdata),
     .wen(wen), .waddr(waddr), .wdata(wdata),
-    .mret(mret), .mepc(mepc)
+    .mret(mret), .mepc(mepc),
+    .trap_en(trap_en), .trap_intr(trap_intr), .trap_code(trap_code),
+    .trap_mepc(trap_mepc), .trap_tval(trap_tval),
+    .trap_pc(trap_pc), .mtvec_valid(mtvec_valid)
   );
 
   always #5 clk = ~clk;
@@ -41,6 +49,15 @@ module tb_csr_file;
     wen = 0; wdata = 0;
   endtask
 
+  // 陷入一拍
+  task automatic trap(input logic intr, input logic [4:0] code,
+                      input logic [31:0] epc, input logic [31:0] tval);
+    trap_en = 1; trap_intr = intr; trap_code = code;
+    trap_mepc = epc; trap_tval = tval;
+    @(posedge clk); #1;
+    trap_en = 0;
+  endtask
+
   localparam logic [11:0] MSTATUS  = 12'h300;
   localparam logic [11:0] MIE      = 12'h304;
   localparam logic [11:0] MTVEC    = 12'h305;
@@ -53,6 +70,7 @@ module tb_csr_file;
   initial begin
     clk = 0; rst_n = 0;
     wen = 0; waddr = 0; wdata = 0; mret = 0; raddr = 0;
+    trap_en = 0; trap_intr = 0; trap_code = 0; trap_mepc = 0; trap_tval = 0;
 
     // ---- 复位值 ----
     repeat (3) @(posedge clk); #1;
@@ -86,13 +104,23 @@ module tb_csr_file;
     wr(MIP, 32'h0000_0000);
     chk_rd(MIP, 32'h0000_0000, "mip MSIP 清零");
 
-    // ---- mtvec：direct/vectored 可写；保留模式只更新 base ----
+    // ---- mtvec：direct/vectored 可写；保留模式只更新 base；mtvec_valid 粘性 ----
+    #1;
+    if (mtvec_valid !== 1'b0) begin
+      errors++;
+      $display("FAIL: 复位后 mtvec_valid 应为 0");
+    end
     wr(MTVEC, 32'h0000_0041);
     chk_rd(MTVEC, 32'h0000_0041, "mtvec vectored");
     wr(MTVEC, 32'h0000_0102);   // 保留模式 2：base 更新、mode 保持 1
     chk_rd(MTVEC, 32'h0000_0101, "mtvec 保留模式 WARL");
     wr(MTVEC, 32'h0000_0200);
     chk_rd(MTVEC, 32'h0000_0200, "mtvec direct");
+    #1;
+    if (mtvec_valid !== 1'b1) begin
+      errors++;
+      $display("FAIL: 写 mtvec 后 mtvec_valid 应为 1");
+    end
 
     // ---- mepc：低两位硬 0 ----
     wr(MEPC, 32'h1234_5673);
@@ -125,7 +153,44 @@ module tb_csr_file;
     wr(MSCRATCH, 32'h0000_0001);
     chk_rd(MSCRATCH, 32'h0000_0001, "写后立即可读");
 
-    if (errors == 0) $display("tb_csr_file: PASS (24 项检查)");
+    // ---- 陷入入口：mepc/mcause/mtval/mstatus 更新，优先级高于指令写 ----
+    wr(MSTATUS, 32'h0000_0008);          // MIE=1, MPIE=0
+    wr(MEPC, 32'h0000_0000);
+    wr(MTVAL, 32'h0000_0000);
+    // 同拍指令写 mscratch 应被陷入压制
+    wen = 1; waddr = MSCRATCH; wdata = 32'hFFFF_FFFF;
+    trap(1'b0, 5'd11, 32'h0000_1234, 32'h0000_ABCD);
+    wen = 0; wdata = 0;
+    chk_rd(MSCRATCH, 32'h0000_0001, "陷入压制同拍指令写");
+    chk_rd(MEPC,     32'h0000_1234, "陷入写 mepc");
+    chk_rd(MCAUSE,   32'd11,        "陷入写 mcause（同步异常）");
+    chk_rd(MTVAL,    32'h0000_ABCD, "陷入写 mtval");
+    chk_rd(MSTATUS,  32'h0000_1880, "陷入更新 mstatus（MPIE←MIE=1, MIE←0）");
+    // 中断型陷入：mcause 最高位置 1
+    trap(1'b1, 5'd7, 32'h0000_2000, 32'd0);
+    chk_rd(MCAUSE,   32'h8000_0007, "陷入写 mcause（中断）");
+
+    // ---- 陷入向量：direct 恒 base；vectored 仅中断按 code 偏移 ----
+    wr(MTVEC, 32'h0000_0400);            // direct, base=0x400
+    #1;
+    if (trap_pc !== 32'h0000_0400) begin
+      errors++;
+      $display("FAIL: direct trap_pc=%h，期望 00000400", trap_pc);
+    end
+    wr(MTVEC, 32'h0000_0401);            // vectored
+    trap_intr = 1'b0; trap_code = 5'd11; #1;
+    if (trap_pc !== 32'h0000_0400) begin
+      errors++;
+      $display("FAIL: vectored 同步异常 trap_pc=%h，期望 00000400", trap_pc);
+    end
+    trap_intr = 1'b1; trap_code = 5'd7; #1;
+    if (trap_pc !== 32'h0000_041C) begin
+      errors++;
+      $display("FAIL: vectored 中断 trap_pc=%h，期望 0000041C", trap_pc);
+    end
+    trap_intr = 1'b0;
+
+    if (errors == 0) $display("tb_csr_file: PASS (36 项检查)");
     else             $fatal(1, "tb_csr_file: FAILED (%0d 项错误)", errors);
     $finish;
   end

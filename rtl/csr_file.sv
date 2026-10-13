@@ -12,8 +12,13 @@
 //   无陷阱向量的程序中维持旧停机行为）。
 // - mepc 低两位硬 0（无 C 扩展，pc 恒 4 字节对齐）。
 // - mcause 仅 interrupt(31) 与 code(4:0) 有效，其余位读 0（WLRL）。
-// - mret 脉冲：MIE←MPIE、MPIE←1。陷入时写 mepc/mcause/mtval/mstatus 的
-//   专用入口随异常迭代接入。
+// - mret 脉冲：MIE←MPIE、MPIE←1。
+// - 陷入入口（trap_*，优先级高于指令写口）：写 mepc/mcause/mtval 并
+//   mstatus.MPIE←MIE、MIE←0；trap_pc 给出陷入向量（vectored 模式仅中断
+//   按 code 偏移，同步异常恒走 base）。trap_intr 本阶段恒 0（同步异常），
+//   中断迭代接入中断源后置 1。
+// - mtvec_valid：mtvec 被软件写过即置 1（粘性）。核心据此区分标准陷入
+//   与停机兼容行为（未配置陷阱向量的程序遇异常仍停机，保护既有测试）。
 `default_nettype none
 
 module csr_file (
@@ -27,7 +32,15 @@ module csr_file (
   input  wire [31:0] wdata,
   // MRET：恢复中断使能；mepc 值供核心重定向取指
   input  wire        mret,
-  output wire [31:0] mepc
+  output wire [31:0] mepc,
+  // 陷入入口（优先级高于指令写口）
+  input  wire        trap_en,
+  input  wire        trap_intr,   // 0=同步异常；1=中断（中断迭代接入）
+  input  wire [4:0]  trap_code,
+  input  wire [31:0] trap_mepc,
+  input  wire [31:0] trap_tval,
+  output wire [31:0] trap_pc,     // 陷入向量（vectored 模式仅中断按 code 偏移）
+  output wire        mtvec_valid  // mtvec 已被软件配置过（粘性）
 );
 
   // M 态 CSR 地址
@@ -49,8 +62,18 @@ module csr_file (
   logic        mcause_intr;
   logic [4:0]  mcause_code;
   logic [31:0] mtval_r;
+  logic        mtvec_valid_r;
 
-  assign mepc = mepc_r;
+  assign mepc        = mepc_r;
+  assign mtvec_valid = mtvec_valid_r;
+
+  // 陷入向量：direct 恒为 base；vectored 仅中断按 code×4 偏移，同步异常走 base
+  assign trap_pc = (trap_intr && mtvec_r[1:0] == 2'b01)
+                   ? {mtvec_r[31:2], 2'b00} + {25'd0, trap_code, 2'b00}
+                   : {mtvec_r[31:2], 2'b00};
+
+  // mepc 低两位写入时被掩掉（无 C 扩展，pc 恒 4 字节对齐）
+  wire _unused = &{1'b0, trap_mepc[1:0]};
 
   // ================= 组合读 =================
   always_comb begin
@@ -82,11 +105,22 @@ module csr_file (
       mtvec_r      <= 32'd0;
       mscratch_r   <= 32'd0;
       mepc_r       <= 32'd0;
-      mcause_intr  <= 1'b0;
-      mcause_code  <= 5'd0;
-      mtval_r      <= 32'd0;
+      mcause_intr   <= 1'b0;
+      mcause_code   <= 5'd0;
+      mtval_r       <= 32'd0;
+      mtvec_valid_r <= 1'b0;
     end else begin
-      if (wen) begin
+      // mtvec 被写过即视为已配置陷阱向量（粘性，供核心区分陷入/停机）
+      if (wen && waddr == CSR_MTVEC) mtvec_valid_r <= 1'b1;
+      // 陷入写入口优先级高于指令写口（陷入时同拍的更年轻 CSR 写已被核心抑制）
+      if (trap_en) begin
+        mepc_r       <= {trap_mepc[31:2], 2'b00};
+        mcause_intr  <= trap_intr;
+        mcause_code  <= trap_code;
+        mtval_r      <= trap_tval;
+        mstatus_mpie <= mstatus_mie;
+        mstatus_mie  <= 1'b0;
+      end else if (wen) begin
         case (waddr)
           CSR_MSTATUS: begin
             mstatus_mie  <= wdata[3];

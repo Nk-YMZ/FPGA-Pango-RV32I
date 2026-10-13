@@ -46,6 +46,9 @@ smoke: $(BUILD)/test_core_smoke.hex
 	$(BUILD)/obj_core/tb_core +HEX=$(BUILD)/test_core_smoke.hex
 
 # 测试程序：汇编/编译 → objcopy → hex
+# elf 保留（默认会作中间文件删除）：test_csr/test_trap 运行时用 nm 从中提取
+# tohost 地址，增量构建（hex 未重建）时 elf 不在会导致提取失败
+.PRECIOUS: $(BUILD)/%.elf
 $(BUILD)/%.elf: sw/tests/%.S sw/link.ld scripts/bin2hex.py
 	@mkdir -p $(BUILD)
 	$(RISCV)gcc $(RISCV_FLAGS) -T sw/link.ld $< -o $@
@@ -56,13 +59,17 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 
 # ---------------- 集成仿真 ----------------
 SOC_TB := $(BUILD)/obj_soc/tb_soc
-HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_fault_csr.hex \
-            test_fault_illegal.hex test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
+HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_trap.hex \
+            test_fault_csr.hex test_fault_illegal.hex test_fault_misaligned.hex \
+            test_fault_bus.hex test_ebreak.hex)
 
 integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d
 	$(SOC_TB) +HEX=$(BUILD)/test_muldiv.hex +EXPECT=1 +MAGIC=0000900d
-	$(SOC_TB) +HEX=$(BUILD)/test_csr.hex +EXPECT=1 +MAGIC=0000900d
+	$(SOC_TB) +HEX=$(BUILD)/test_csr.hex \
+	    +TOHOST=$$($(RISCV)nm $(BUILD)/test_csr.elf | awk '/[[:space:]]tohost$$$$/{print $$1}')
+	$(SOC_TB) +HEX=$(BUILD)/test_trap.hex \
+	    +TOHOST=$$($(RISCV)nm $(BUILD)/test_trap.elf | awk '/[[:space:]]tohost$$$$/{print $$1}')
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_csr.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4

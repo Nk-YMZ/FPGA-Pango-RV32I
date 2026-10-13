@@ -1,6 +1,7 @@
 # Zicsr / MRET SoC 集成测试：在真实流水线中验证 CSR 读改写、相邻 CSR
 # 指令无互锁、WARL 行为与 mret 重定向。
-# 通过：GPIO 写魔数 0x0000900d 后 ecall；任何检查失败立即 ebreak。
+# 结束机制：tohost 自检（通过写 1、失败写 3）。本测试配置了 mtvec，
+# mtvec_valid 粘性置位后 ecall/ebreak 均转为陷入，不能再用停机兼容路径结束。
     .section .text
     .globl _start
 
@@ -111,11 +112,19 @@ mret_target:
     jal  x1, 1f
     j    fail
 1:
-    # 通过：写 GPIO 魔数并停机
-    li   x30, 0x10000000
-    li   x31, 0x0000900D
-    sw   x31, 0(x30)
-    ecall
+    # 通过：写 tohost=1 并原地循环（mtvec 已配置，停机兼容路径不再可用）
+    la   t0, tohost
+    li   t1, 1
+    sw   t1, 0(t0)
+1:  j    1b
 
 fail:
-    ebreak
+    la   t0, tohost
+    li   t1, 3
+    sw   t1, 0(t0)
+1:  j    1b
+
+    .section .tohost, "aw", @progbits
+    .globl tohost
+    .balign 4
+tohost: .word 0
