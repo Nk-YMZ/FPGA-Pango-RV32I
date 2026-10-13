@@ -7,15 +7,13 @@
 分支预测器、多周期乘除法单元、M 态异常/中断**最小子集**（仅机器模式：精确陷入、
 MTI/MSI/MEI、WFI；未实现项清单见 AGENTS.md「特权架构边界」）、
 UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，并完成仿真验证与官方合规测试。
-当前为纯 RTL + 仿真阶段，不涉及上板适配。
+RTL 核心已冻结，当前进入应用环节（配套外围电路 + C 应用固件）；不涉及上板适配。
 
 ## 验证状态
 
-- ✅ 官方架构合规测试 **riscv-arch-test RV32IM 47/47 通过**（Sail 参考模型生成签名）
-- ✅ 官方机器模式特权测试 **riscv-tests rv32mi 8/8 通过**（`make rtests`）
-- ✅ 自研单元/集成测试全部通过（自动判定，非人工看波形）
-- ✅ **riscv-dv 随机指令测试**：Pygen 生成 RV32IM + Sail 黄金参考 + 内存签名比对，20 种子全过
-- ✅ **中断透明性随机化**：中断注入（MTI/UART-MEI/MSI）三轮签名一致 + 陷入计数断言，20 种子 600 次陷入全过（`make randirq`）
+- ✅ 全部测试层通过：官方 ACT RV32IM 47/47、官方 riscv-tests rv32mi 8/8、自研单元/集成测试
+- ✅ 三层随机化测试（`make rand` / `make randtrap` / `make randirq`）全量通过，
+  最近一轮全量复测各 100 个种子无一失败
 - ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,547,147 周期（见 `bench/results.csv`）
 
 ## 目录
@@ -23,7 +21,7 @@ UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，并完成仿真验证与
 ```
 rtl/       CPU 核心与外设 RTL（soc_top.sv 为顶层）
 tb/        Verilator 测试平台
-sw/        自研测试程序（链接脚本、crt0、C/汇编测试）
+sw/        测试程序与应用固件（链接脚本、crt0、C/汇编）
 bench/     CoreMark 移植层与成绩记录（results.csv）
 scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
            随机测试层（scripts/rand/，riscv-dv Pygen 适配）
@@ -51,8 +49,8 @@ make lint    # Verilator -Wall lint
 ## 说明
 
 - 地址映射、接口约定、设计细节与迭代工作流程见 [AGENTS.md](AGENTS.md)
-- 特权架构为仅 M 态的最小异常/中断子集，未实现项（S/U 态、PMP、调试、
-  计数器 CSR、PLIC 等）与验证缺口清单见 AGENTS.md「特权架构边界」
+- 特权架构为仅 M 态的最小异常/中断子集（仅覆盖当前项目需求，非完整实现），
+  未实现项（S/U 态、PMP、调试、计数器 CSR、PLIC 等）与验证缺口清单见 AGENTS.md「特权架构边界」
 - 外设地址：GPIO `0x1000_0000`，UART `0x1000_1000`，周期计数器 `0x1000_2000`，
   mtimer `0x1000_3000`，RAM `0x0` 起（FPGA 默认 64KiB，仿真可放大）
 - 中断：mtimer → MTI；UART RX 与 GPIO 输入 → MEI（电平聚合）；软件置 MSIP → MSI
