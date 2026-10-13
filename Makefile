@@ -13,13 +13,13 @@ VFLAGS    := --binary --timing -j 4 -Wall -Wno-DECLFILENAME --timescale 1ns/1ps
 BUILD := build
 
 RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
-            rtl/ras.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv
+            rtl/ras.sv rtl/csr_file.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv
 RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/soc_top.sv
 
 RISCV       := riscv64-elf-
-RISCV_FLAGS := -march=rv32im -mabi=ilp32 -nostdlib -nostartfiles
+RISCV_FLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles
 
-UNITS := alu muldiv decoder bht ras uart gpio
+UNITS := alu muldiv decoder bht ras uart gpio csr_file
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
@@ -56,12 +56,14 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 
 # ---------------- 集成仿真 ----------------
 SOC_TB := $(BUILD)/obj_soc/tb_soc
-HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_fault_illegal.hex \
-            test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
+HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_fault_csr.hex \
+            test_fault_illegal.hex test_fault_misaligned.hex test_fault_bus.hex test_ebreak.hex)
 
 integ: $(SOC_TB) $(HEXES)
 	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d
 	$(SOC_TB) +HEX=$(BUILD)/test_muldiv.hex +EXPECT=1 +MAGIC=0000900d
+	$(SOC_TB) +HEX=$(BUILD)/test_csr.hex +EXPECT=1 +MAGIC=0000900d
+	$(SOC_TB) +HEX=$(BUILD)/test_fault_csr.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_bus.hex +EXPECT=5

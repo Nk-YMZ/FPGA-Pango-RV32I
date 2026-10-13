@@ -1,8 +1,8 @@
 // RV32IM 指令译码器：纯组合逻辑，输出控制信号包与立即数
 // 约定：
 // - FENCE/FENCE.I 按 NOP 处理（本阶段无 Cache，无需任何动作）
-// - ECALL/EBREAK 单独标记，由核心走停机流程
-// - 其余 SYSTEM 指令（CSR）及无法识别的编码一律置 illegal，绝不静默执行
+// - ECALL/EBREAK 单独标记，由核心走停机流程；MRET 与 Zicsr CSR 指令已实现
+// - 其余 SYSTEM 指令（WFI、未实现的 CSR 地址等）及无法识别的编码一律置 illegal，
 `default_nettype none
 
 module decoder (
@@ -169,11 +169,34 @@ module decoder (
       end
       // ---------- FENCE / FENCE.I：按 NOP ----------
       7'b0001111: ;
-      // ---------- ECALL / EBREAK ----------
+      // ---------- SYSTEM：ECALL / EBREAK / MRET / CSR ----------
       7'b1110011: begin
-        if (instr == 32'h0000_0073)      ctrl.is_ecall  = 1'b1;
-        else if (instr == 32'h0010_0073) ctrl.is_ebreak = 1'b1;
-        else ctrl.illegal = 1'b1;        // CSR 等未实现
+        case (funct3)
+          3'b000: begin
+            if (instr == 32'h0000_0073)      ctrl.is_ecall  = 1'b1;
+            else if (instr == 32'h0010_0073) ctrl.is_ebreak = 1'b1;
+            else if (instr == 32'h3020_0073) ctrl.is_mret   = 1'b1;
+            else ctrl.illegal = 1'b1;        // WFI 等未实现
+          end
+          // Zicsr：CSRRW/CSRRS/CSRRC 及立即数型（funct3[2] 区分寄存器/uimm5 源）
+          3'b001, 3'b010, 3'b011, 3'b101, 3'b110, 3'b111: begin
+            // 仅实现 M 态基本 CSR（与 rtl/csr_file.sv 集合一致），其余地址非法；
+            // 已实现 CSR 均不在只读区（addr[11:10]!=11），成员检查即覆盖只读规则
+            case (instr[31:20])
+              12'h300, 12'h304, 12'h305, 12'h340,
+              12'h341, 12'h342, 12'h343, 12'h344: begin
+                ctrl.is_csr    = 1'b1;
+                ctrl.csr_imm   = funct3[2];
+                ctrl.funct3    = funct3;
+                ctrl.reg_write = 1'b1;     // 写回旧 CSR 值（EX 级替换 exmem_alu）
+                ctrl.wb_src    = WB_ALU;
+                imm = {20'd0, instr[31:20]};   // CSR 地址随 imm 携带到 EX 级
+              end
+              default: ctrl.illegal = 1'b1;
+            endcase
+          end
+          default: ctrl.illegal = 1'b1;    // funct3=100 等保留编码
+        endcase
       end
       default: ctrl.illegal = 1'b1;
     endcase

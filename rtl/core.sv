@@ -20,6 +20,9 @@
 //   用返回地址栈（RAS）在 ID 级预测目标，调用指令进入 EX 时压栈。EX 级解析
 //   真实结果，不一致则冲刷 IF/ID 按正确目标重定向，并撤销对应 RAS 弹栈恢复
 //   现场；其余 JALR（间接跳转）不预测，EX 级重定向。
+// - M 态特权子集（Zicsr）：CSR 指令在 EX 级读改写（旧值作 rd 写回数据，
+//   无 CSR 数据相关）；MRET 在 EX 级重定向回 mepc 并恢复 mstatus.MIE。
+//   CSR 堆见 rtl/csr_file.sv；中断与异常陷入后续迭代接入。
 // - 停机策略（本阶段无异常体系）：ECALL/EBREAK/非法指令在 ID 级被发现后停止
 //   取指、排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在
 //   MEM 级直接停机。停机后所有状态保持，寄存器写回与外设写均被禁止。
@@ -281,6 +284,42 @@ module core #(
   wire [31:0] rs2_e = fwd2_mem ? exmem_fwd_data :
                       fwd2_wb  ? memwb_wb_data  : idex_rs2_val;
 
+  // ---- M 态 CSR 堆（Zicsr）：EX 级读改写 ----
+  // 读出旧值作 rd 写回数据（随 exmem_alu 下行）；新值由旧值与源操作数
+  // （rs1 前递值或 rs1 字段的 uimm5）合成，同拍末写回 CSR 堆。读、写同在
+  // EX 级相隔一个时钟沿，CSR 写后读无数据相关；访存停顿冻结期间操作数
+  // 不变，重复写幂等无害（本核心的 CSR 均无写副作用），无需额外互锁。
+  logic [31:0] csr_wdata_e;
+  wire  [31:0] csr_rdata;
+  wire  [31:0] csr_mepc;
+  wire         mret_commit_e;
+
+  wire [31:0] csr_src_e = idex_ctrl.csr_imm ? {27'd0, idex_rs1} : rs1_e;
+  always_comb begin
+    case (idex_ctrl.funct3[1:0])
+      2'b01:   csr_wdata_e = csr_src_e;                  // CSRRW(I)
+      2'b10:   csr_wdata_e = csr_rdata | csr_src_e;      // CSRRS(I)
+      2'b11:   csr_wdata_e = csr_rdata & ~csr_src_e;     // CSRRC(I)
+      default: csr_wdata_e = csr_rdata;
+    endcase
+  end
+  // CSRRS/CSRRC 源为 x0/uimm=0 时纯读不写（寄存器型与立即数型的源字段
+  // 同为 idex_rs1）；CSRRW 恒写
+  wire csr_we_e = idex_ctrl.is_csr && !halted &&
+                  (idex_ctrl.funct3[1:0] == 2'b01 || idex_rs1 != 5'd0);
+
+  csr_file csr_i (
+    .clk   (clk),
+    .rst_n (rst_n),
+    .raddr (idex_imm[11:0]),
+    .rdata (csr_rdata),
+    .wen   (csr_we_e),
+    .waddr (idex_imm[11:0]),
+    .wdata (csr_wdata_e),
+    .mret  (mret_commit_e),
+    .mepc  (csr_mepc)
+  );
+
   wire [31:0] alu_a = idex_ctrl.src_a_pc  ? idex_pc  : rs1_e;
   wire [31:0] alu_b = idex_ctrl.src_b_imm ? idex_imm : rs2_e;
   wire [31:0] alu_y;
@@ -345,10 +384,16 @@ module core #(
   wire jalr_pred_miss_e = idex_ctrl.is_jalr && idex_pred_taken &&
                           (target_e != idex_pred_target);
 
+  // mret：无条件重定向回 mepc，复用分支重定向通路冲刷 IF/ID；
+  // mstatus 恢复（MIE←MPIE）在停顿解除拍与重定向同步提交
+  wire mret_e = idex_ctrl.is_mret;
+  assign mret_commit_e = mret_e && !stall && !draining && !halted;
+
   assign ex_redirect        = ((is_cti_e && (actual_taken_e != idex_pred_taken))
-                               || jalr_pred_miss_e)
+                               || jalr_pred_miss_e || mret_e)
                               && !draining && !halted;
-  assign ex_redirect_target = actual_taken_e ? target_e : idex_pc + 32'd4;
+  assign ex_redirect_target = mret_e        ? csr_mepc :
+                              actual_taken_e ? target_e : idex_pc + 32'd4;
   assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch && !stall;
 
   // RAS 恢复：返回预测失误时撤销本条在 ID 级的弹栈。纯弹栈数据未擦除，指针
@@ -385,7 +430,8 @@ module core #(
         exmem_halt       <= HALT_NONE;
       end else begin
         exmem_ctrl      <= idex_ctrl;
-        exmem_alu       <= is_muldiv_e ? muldiv_result : alu_y;
+        exmem_alu       <= idex_ctrl.is_csr ? csr_rdata :
+                           is_muldiv_e      ? muldiv_result : alu_y;
         exmem_rs2_val   <= rs2_e;
         exmem_pc4       <= idex_pc + 32'd4;
         exmem_rd        <= idex_rd;

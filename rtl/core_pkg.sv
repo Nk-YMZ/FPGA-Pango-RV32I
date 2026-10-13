@@ -55,8 +55,11 @@ package core_pkg;
     logic       is_branch;   // 条件分支
     logic       is_jal;
     logic       is_jalr;
-    logic [2:0] funct3;      // 条件分支的比较类型 / 乘除法子操作（复用同一位段）
+    logic [2:0] funct3;      // 条件分支的比较类型 / 乘除法子操作 / CSR 操作（复用同一位段）
     logic       is_muldiv;   // RV32M 乘除法（交 EX 级多周期单元，funct3 选子操作）
+    logic       is_csr;      // Zicsr CSR 指令（EX 级读改写，imm 携带 CSR 地址）
+    logic       csr_imm;     // CSR 源为 uimm5（rs1 字段作立即数）
+    logic       is_mret;     // MRET：EX 级重定向回 mepc 并恢复 mstatus
     logic       is_ecall;
     logic       is_ebreak;
     logic       illegal;
