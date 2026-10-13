@@ -43,8 +43,19 @@ _start:
     # handler 现场保存区地址经 mscratch 传递；mtvec 先装 direct 模式
     la   t0, h_save
     csrw mscratch, t0
+
+    # ---- 0. 竞争回归：mtvec 首次写入紧邻非法指令，必须陷入而非停机 ----
+    # （csrw mtvec 在 EX 级末拍生效，同拍 ID 级判定需前递"正在写 mtvec"）
+    SET_EXP 2, 0xFFFFFFFF
+    la   t0, g_mepc_en
+    li   t1, 1
+    sw   t1, 0(t0)
+    la   t0, g_mepc
+    la   t1, 1f
+    sw   t1, 0(t0)
     la   t0, trap_handler
-    csrw mtvec, t0
+    csrw mtvec, t0              # mtvec_valid 0→1 的写入与紧邻非法指令竞争
+1:  .word 0xFFFFFFFF
 
     # ---- 1. ecall：cause=11，mtval=0，mepc=ecall 地址 ----
     SET_EXP 11, 0
@@ -157,7 +168,7 @@ _start:
     # ---- 全部陷阱次数核对（不含结尾哨兵）----
     la   t0, s_count
     lw   t0, 0(t0)
-    CHK  t0, 14
+    CHK  t0, 15
 
     # ---- 结尾：哨兵 ecall 触发 handler 写 tohost=1 ----
     la   t0, g_cause

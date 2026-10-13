@@ -210,13 +210,19 @@ module core #(
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
   // 异常请求（被 EX 级重定向或年长陷入杀死时不接受——说明它在错误路径上）
-  // mtvec 未配置（mtvec_valid=0）时维持停机兼容：ID 级接受后停止取指、
-  // 排干流水线停机；已配置时不接受停机，标记随流水线到 EX 级触发标准陷入
+  // mtvec 未配置时维持停机兼容：ID 级接受后停止取指、排干流水线停机；
+  // 已配置时不接受停机，标记随流水线到 EX 级触发标准陷入。
+  // 注意竞争：csrw mtvec 紧邻异常指令时，写入在 EX 级末拍生效，同拍 ID 级
+  // 看到的是旧的 mtvec_valid——判定需并入"EX 级正在写 mtvec"的前递，
+  // 否则紧随 mtvec 首次写入的异常会被误判为停机（riscv-tests 初始化即此模式）
   wire mtvec_valid;
+  wire mtvec_cfg_d = mtvec_valid ||
+                     (idex_ctrl.is_csr && idex_imm[11:0] == 12'h305 &&
+                      (idex_ctrl.funct3[1:0] == 2'b01 || idex_rs1 != 5'd0));
   wire halt_req_d = ctrl_d.is_ecall || ctrl_d.is_ebreak || ctrl_d.illegal;
   wire exc_ok_d   = halt_req_d && !ex_redirect && !stall_young
                     && !trap_ex && !trap_mem && !trap_cti && !irq_take;
-  assign id_halt_accept = exc_ok_d && !mtvec_valid;
+  assign id_halt_accept = exc_ok_d && !mtvec_cfg_d;
 
   halt_code_t halt_code_d;
   always_comb begin
