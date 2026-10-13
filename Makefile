@@ -60,7 +60,7 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 # ---------------- 集成仿真 ----------------
 SOC_TB := $(BUILD)/obj_soc/tb_soc
 HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_trap.hex \
-            test_irq.hex test_fault_csr.hex test_fault_illegal.hex \
+            test_irq.hex test_irq_ghost.hex test_fault_csr.hex test_fault_illegal.hex \
             test_fault_misaligned.hex test_fault_bus.hex test_fault_fetchmis.hex test_ebreak.hex)
 
 integ: $(SOC_TB) $(HEXES)
@@ -72,6 +72,8 @@ integ: $(SOC_TB) $(HEXES)
 	    +TOHOST=$$($(RISCV)nm $(BUILD)/test_trap.elf | awk '/[[:space:]]tohost$$$$/{print $$1}')
 	$(SOC_TB) +HEX=$(BUILD)/test_irq.hex \
 	    +TOHOST=$$($(RISCV)nm $(BUILD)/test_irq.elf | awk '/[[:space:]]tohost$$$$/{print $$1}')
+	$(SOC_TB) +HEX=$(BUILD)/test_irq_ghost.hex \
+	    +TOHOST=$$($(RISCV)nm $(BUILD)/test_irq_ghost.elf | awk '/[[:space:]]tohost$$$$/{print $$1}')
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_csr.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_illegal.hex +EXPECT=3
 	$(SOC_TB) +HEX=$(BUILD)/test_fault_misaligned.hex +EXPECT=4

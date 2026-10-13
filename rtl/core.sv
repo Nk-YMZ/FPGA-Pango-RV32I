@@ -125,19 +125,23 @@ module core #(
 
   // ================= IF/ID 流水线寄存器 =================
   logic [31:0] ifid_pc, ifid_instr;
+  logic        ifid_valid;   // IF/ID 含真实指令（冲刷注入的 NOP 气泡为 0）
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       ifid_pc    <= 32'd0;
       ifid_instr <= NOP;
+      ifid_valid <= 1'b0;
     end else if (stall_young) begin
       // 保持
     end else if (ex_redirect || id_redirect || id_halt_accept || draining
                  || trap_ex || trap_mem || trap_cti || irq_take || wfi_enter) begin
       ifid_instr <= NOP;                    // 冲刷 / 停机后停止取指
+      ifid_valid <= 1'b0;
     end else begin
       ifid_pc    <= pc;
       ifid_instr <= instr_f;
+      ifid_valid <= 1'b1;
     end
   end
 
@@ -310,7 +314,10 @@ module core #(
       idex_pred_target <= ras_top;
       idex_ras_pop     <= ret_predict_d && !draining && !halted;
       idex_ras_push    <= ras_push_d;
-      idex_valid       <= 1'b1;
+      // 随 IF/ID 的 valid 下传：冲刷气泡（NOP）不是真实指令，否则中断在
+      // 气泡拍采样会把 mepc 记为气泡的陈旧 pc——真正的后继指令（ID 级）
+      // 已被冲刷，mret 后从死地址续行，程序流错乱（层 B 随机测试检出）
+      idex_valid       <= ifid_valid;
       idex_halt       <= halt_req_d ? halt_code_d : HALT_NONE;
       idex_exc_tval   <= (halt_req_d && ctrl_d.illegal) ? ifid_instr : 32'd0;
     end
