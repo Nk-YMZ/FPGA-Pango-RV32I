@@ -11,6 +11,7 @@ WFI）、UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，并完成仿真
 ## 验证状态
 
 - ✅ 官方架构合规测试 **riscv-arch-test RV32IM 47/47 通过**（Sail 参考模型生成签名）
+- ✅ 官方机器模式特权测试 **riscv-tests rv32mi 8/8 通过**（`make rtests`）
 - ✅ 自研单元/集成测试全部通过（自动判定，非人工看波形）
 - ✅ **riscv-dv 随机指令测试**：Pygen 生成 RV32IM + Sail 黄金参考 + 内存签名比对，20 种子全过
 - ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,547,147 周期（见 `bench/results.csv`）
@@ -33,6 +34,7 @@ build/     生成产物（gitignore）
 ```bash
 make test    # 自研单元 + 核心冒烟 + 集成测试
 make act     # 官方 ISA 合规测试（47 项）
+make rtests  # 官方 riscv-tests rv32mi 机器模式特权测试（8 项）
 make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make bench   # CoreMark 跑分（周期数，逐次可比）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看

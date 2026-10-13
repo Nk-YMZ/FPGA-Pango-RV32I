@@ -58,6 +58,7 @@
 **验证状态：**
 
 - 官方 ACT（riscv-arch-test）RV32IM 全套 47/47 通过（I 39 + M 8）
+- 官方 riscv-tests **rv32mi 机器模式特权测试 8/8 通过**（`make rtests`）
 - 自研单元测试 9 项 + 核心冒烟 + SoC 集成 10 项全部通过（自动判定）
 - **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32IM 随机程序，Sail 0.15 作黄金参考，
   比对内存签名（含全寄存器转储）；默认 20 种子 × instr_cnt=10000，
@@ -83,6 +84,7 @@
 | 层 | 内容 | 入口 |
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
+| 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释 | `make rtests` |
 | 自研测试 | 单元测试（ALU/译码器/BHT/UART/GPIO）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
@@ -110,7 +112,8 @@
 
 外部组件固定版本（更换版本须连同测试结果一起评估后再提交）：
 `external/` 下（gitignore，setup.sh 拉取）：riscv-arch-test commit af6485c（2026-10-11）、
-coremark v1.01、sail-riscv 0.15（external/tools/bin）、riscv-dv commit 0d71c2b（2026-09-21）；
+coremark v1.01、sail-riscv 0.15（external/tools/bin）、riscv-dv commit 0d71c2b（2026-09-21）、
+riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 用户目录：mise v2026.10.8（~/.local/bin/mise，管理 ACT 框架工具链）。
 ACT 框架的 Python/Ruby 依赖由 mise 管理（`~/.local/bin/mise`，驱动 uv/ruby/bundler，
 不改系统、不碰 shell 配置）。我们的 ACT 适配层在 `scripts/act/pango-rv32i/`
@@ -203,7 +206,7 @@ dtb 地址差异及其兜底理由见该文件头注释。
    2. ~~同步异常陷入（ecall/ebreak/非法指令/非对齐/总线错误 → mtvec 陷入；mtvec 未配置时维持停机兼容）~~（已完成）
    3. ~~中断（mtimer 定时器 + UART/GPIO 中断源 + 中断陷入/恢复 + WFI）~~（已完成）
 
-   后续可选：riscv-tests rv32mi 对接、riscv-dv 特权随机测试扩展（是否立项等用户明确指令）
+   后续可选：~~riscv-tests rv32mi 对接~~（已完成，8/8 通过）、riscv-dv 特权随机测试扩展（是否立项等用户明确指令）
 
 > 已评估放弃：**条件分支预测增强（gshare 全局历史）**。三种配置（GHR=8/256 表项、
 > GHR=4/256 表项、GHR=4/1024 表项）在 CoreMark 上误预测次数均高于本地 2-bit

@@ -19,6 +19,7 @@ COREMARK_TAG=v1.01                                         # cfa9ab3
 SAIL_VER=0.15
 MISE_VER=v2026.10.8
 RISCV_DV_COMMIT=0d71c2b666dec48dde0b804a2138426da56aa252   # 2026-09-21 master
+RISCV_TESTS_COMMIT=7b68f7b91f827f8d94cc1c57ff123752c5c8f704  # 2026-10-13 master（含 env 子模块）
 
 echo "== 1/5 检查系统依赖 =="
 missing=0
@@ -80,6 +81,20 @@ else
     echo "  riscv-dv 已存在，版本正确"
   else
     echo "  警告: riscv-dv 版本不符（当前 $cur，固定 $RISCV_DV_COMMIT），不自动重置，请人工核对" >&2
+  fi
+fi
+
+if [ ! -d external/riscv-tests ]; then
+  git clone --filter=blob:none https://github.com/riscv-software-src/riscv-tests.git external/riscv-tests
+  git -C external/riscv-tests checkout -q "$RISCV_TESTS_COMMIT"
+  git -C external/riscv-tests submodule update --init env
+  echo "  riscv-tests @ $RISCV_TESTS_COMMIT"
+else
+  cur=$(git -C external/riscv-tests rev-parse HEAD 2>/dev/null || echo "未知")
+  if [ "$cur" = "$RISCV_TESTS_COMMIT" ]; then
+    echo "  riscv-tests 已存在，版本正确"
+  else
+    echo "  警告: riscv-tests 版本不符（当前 $cur，固定 $RISCV_TESTS_COMMIT），不自动重置，请人工核对" >&2
   fi
 fi
 

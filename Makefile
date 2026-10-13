@@ -23,7 +23,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand rtests
 
 test: unit smoke integ
 
@@ -125,6 +125,12 @@ RAND_INSTR ?= 10000
 
 rand: $(SOC_TB)
 	RAND_SEEDS="$(RAND_SEEDS)" RAND_INSTR=$(RAND_INSTR) bash scripts/rand/run_rand.sh
+
+# ---------------- 官方 riscv-tests rv32mi（机器模式特权测试） ----------------
+# 适用 8 项（csr/illegal/ma_addr/ma_fetch/mcsr/sbreak/scall/shamt），
+# 排除项与理由见 scripts/rtests/run_rtests.sh 头注释
+rtests: $(SOC_TB)
+	bash scripts/rtests/run_rtests.sh
 
 # ---------------- lint ----------------
 lint:
