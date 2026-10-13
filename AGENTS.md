@@ -33,26 +33,29 @@
 - 2-bit 饱和计数器动态分支预测器（ID 级预测、EX 级验证更新、失败正确恢复）
 - JAL 目标译码即确定，ID 级直接重定向（跳转惩罚 1 拍）
 - 返回地址栈（RAS，16 项）：ID 级预测返回跳转目标，EX 级验证，误预测精确撤销弹栈
-- 外设：UART（8N1，TX FIFO + RX）、GPIO、周期计数器（benchmark 计时用）
+- 外设：UART（8N1，TX FIFO + RX，RX 有效电平中断）、GPIO（含输入电平中断 IE）、
+  周期计数器（benchmark 计时用）、mtimer（CLINT 风格 mtime/mtimecmp，定时器中断）
 - 存储器：哈佛结构，指令/数据均为同步读 BRAM（Pango DRM 推断模板），
   CPU 与存储器类型解耦；指令口提前一拍送地址，取指无性能损失；
   数据口 load 地址经预取口提前一拍预采样，命中时 2 拍读缩为 1 拍，
   地址线被占用时回退 2 拍路径，外设握手时序不变
-- 停机策略：ecall(1)/ebreak(2)/非法指令(3)/非对齐访存(4)/未映射总线(5)
-  统一停机并报原因码，无静默执行；FENCE/FENCE.I 为 NOP
-- M 态特权子集（Zicsr + 同步异常，rtl/csr_file.sv）：mstatus/mie/mip/mtvec/
-  mepc/mcause/mtval/mscratch 八个 CSR，EX 级读改写（无 CSR 数据相关）；
-  MRET 在 EX 级重定向回 mepc 并恢复 mstatus.MIE；同步异常精确陷入——
-  ecall(11)/ebreak(3)/非法指令(2) 在 ID 级发现、随标记到 EX 级触发，
-  非对齐 load/store(4/6) 与未映射总线(5/7) 在 MEM 级触发，mtval 记录
-  指令编码或访存地址，mtvec 支持 direct/vectored；**停机兼容**：mtvec
-  从未被配置（粘性 mtvec_valid=0）时维持旧停机行为，既有测试不受影响。
-  中断尚未接入（mip 的 MTIP/MEIP 暂无中断源），下一迭代接入
+- M 态特权子集（Zicsr + 异常/中断，rtl/csr_file.sv）：mstatus/mie/mip/mtvec/
+  mepc/mcause/mtval/mscratch 八个 CSR，EX 级读改写（无 CSR 数据相关）。
+  同步异常精确陷入：ecall(11)/ebreak(3)/非法指令(2) 在 ID 级发现、随标记
+  到 EX 级触发，非对齐 load/store(4/6) 与未映射总线(5/7) 在 MEM 级触发，
+  mtval 记录指令编码或访存地址；中断 MTI/MSI/MEI（优先级 MEI>MSI>MTI）
+  在 EX 级采样，仅当 EX 级含未退休指令且流水线流动时触发（乘除停顿期间
+  不采样，延迟最多一个除法周期），mepc=本条 pc、handler 返回后重执行；
+  陷入优先级 MEM 故障 > EX 异常 > 中断 > 分支重定向；mtvec 支持
+  direct/vectored；MRET 恢复 mstatus.MIE；WFI 真睡眠（mip&mie 非零唤醒，
+  不看 MIE）。**停机兼容**：mtvec 从未被配置（粘性 mtvec_valid=0）时维持
+  旧停机行为与原因码（ecall(1)/ebreak(2)/非法指令(3)/非对齐(4)/总线(5)），
+  既有测试与 ACT/rand/bench 流程不受影响；FENCE/FENCE.I 为 NOP
 
 **验证状态：**
 
 - 官方 ACT（riscv-arch-test）RV32IM 全套 47/47 通过（I 39 + M 8）
-- 自研单元测试 8 项 + 核心冒烟 + SoC 集成 9 项全部通过（自动判定）
+- 自研单元测试 9 项 + 核心冒烟 + SoC 集成 10 项全部通过（自动判定）
 - **riscv-dv 随机指令测试层已建成**：Pygen 生成 RV32IM 随机程序，Sail 0.15 作黄金参考，
   比对内存签名（含全寄存器转储）；默认 20 种子 × instr_cnt=10000，
   当前全部通过（`make rand`）
@@ -192,10 +195,12 @@ dtb 地址差异及其兜底理由见该文件头注释。
 
 ### 已立项：优化迭代（按序逐项实施）
 
-1. **异常/中断体系**：应用需要定时器与外设中断支撑响应时间统计与超时识别；建立异常/中断机制使应用可中断驱动。特权合规验证改用官方 riscv-tests rv32mi 套件 + riscv-dv 特权随机测试扩展（已核实：ACT4 特权套件全部要求 Sv 虚存或 PMP，无 M-only 套件可对接）；以功能验收为主，允许预期内性能回退但须说明。按三个原子化迭代实施：
+1. ~~**异常/中断体系**~~（已完成）：应用需要定时器与外设中断支撑响应时间统计与超时识别；建立异常/中断机制使应用可中断驱动。特权合规验证改用官方 riscv-tests rv32mi 套件 + riscv-dv 特权随机测试扩展（已核实：ACT4 特权套件全部要求 Sv 虚存或 PMP，无 M-only 套件可对接）；以功能验收为主，允许预期内性能回退但须说明。按三个原子化迭代实施：
    1. ~~Zicsr + M 态 CSR 堆 + MRET~~（已完成）
    2. ~~同步异常陷入（ecall/ebreak/非法指令/非对齐/总线错误 → mtvec 陷入；mtvec 未配置时维持停机兼容）~~（已完成）
-   3. 中断（mtimer 定时器 + UART/GPIO 中断源 + 中断陷入/恢复 + WFI）
+   3. ~~中断（mtimer 定时器 + UART/GPIO 中断源 + 中断陷入/恢复 + WFI）~~（已完成）
+
+   后续可选：riscv-tests rv32mi 对接、riscv-dv 特权随机测试扩展（是否立项等用户明确指令）
 
 > 已评估放弃：**条件分支预测增强（gshare 全局历史）**。三种配置（GHR=8/256 表项、
 > GHR=4/256 表项、GHR=4/1024 表项）在 CoreMark 上误预测次数均高于本地 2-bit

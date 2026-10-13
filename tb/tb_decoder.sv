@@ -98,9 +98,11 @@ module tb_decoder;
     instr = 32'h0010_0073; #1;
     if (!(ctrl.is_ebreak && !ctrl.illegal)) fail("EBREAK");
 
-    // MRET
+    // MRET / WFI
     instr = 32'h3020_0073; #1;
     if (!(ctrl.is_mret && !ctrl.illegal && !ctrl.reg_write)) fail("MRET");
+    instr = 32'h1050_0073; #1;
+    if (!(ctrl.is_wfi && !ctrl.illegal && !ctrl.reg_write)) fail("WFI");
 
     // csrrw t0, mstatus, t1：imm 携带 CSR 地址，funct3 携带子操作
     instr = 32'h3003_12F3; #1;
@@ -122,9 +124,9 @@ module tb_decoder;
     instr = 32'h7C03_12F3; #1;
     if (!(ctrl.illegal)) fail("未实现 CSR 应判非法");
 
-    // WFI 未实现 → illegal
-    instr = 32'h1050_0073; #1;
-    if (!(ctrl.illegal)) fail("WFI 应判非法");
+    // 未实现的 SYSTEM 编码（funct3=000 非常见指令）→ illegal
+    instr = 32'h0000_F073; #1;
+    if (!(ctrl.illegal)) fail("非法 SYSTEM 编码");
 
     // 全 1 编码 → illegal
     instr = 32'hFFFF_FFFF; #1;
@@ -134,7 +136,7 @@ module tb_decoder;
     instr = 32'h0083_3283; #1;
     if (!(ctrl.illegal)) fail("非法 LOAD funct3");
 
-    if (errors == 0) $display("tb_decoder: PASS (26 项检查)");
+    if (errors == 0) $display("tb_decoder: PASS (27 项检查)");
     else             $fatal(1, "tb_decoder: FAILED (%0d 项错误)", errors);
     $finish;
   end

@@ -18,6 +18,9 @@ module tb_csr_file;
   logic [31:0] trap_mepc, trap_tval;
   wire  [31:0] trap_pc;
   wire         mtvec_valid;
+  logic        mtip_i, meip_i;
+  wire         mie_status;
+  wire  [2:0]  ip_masked;
 
   csr_file dut (
     .clk(clk), .rst_n(rst_n),
@@ -26,7 +29,9 @@ module tb_csr_file;
     .mret(mret), .mepc(mepc),
     .trap_en(trap_en), .trap_intr(trap_intr), .trap_code(trap_code),
     .trap_mepc(trap_mepc), .trap_tval(trap_tval),
-    .trap_pc(trap_pc), .mtvec_valid(mtvec_valid)
+    .trap_pc(trap_pc), .mtvec_valid(mtvec_valid),
+    .mtip_i(mtip_i), .meip_i(meip_i),
+    .mie_status(mie_status), .ip_masked(ip_masked)
   );
 
   always #5 clk = ~clk;
@@ -71,6 +76,7 @@ module tb_csr_file;
     clk = 0; rst_n = 0;
     wen = 0; waddr = 0; wdata = 0; mret = 0; raddr = 0;
     trap_en = 0; trap_intr = 0; trap_code = 0; trap_mepc = 0; trap_tval = 0;
+    mtip_i = 0; meip_i = 0;
 
     // ---- 复位值 ----
     repeat (3) @(posedge clk); #1;
@@ -190,7 +196,41 @@ module tb_csr_file;
     end
     trap_intr = 1'b0;
 
-    if (errors == 0) $display("tb_csr_file: PASS (36 项检查)");
+    // ---- 外部中断线：mip 反映 MTIP/MEIP；ip_masked = mip & mie ----
+    wr(MIE, 32'h0000_0000);            // 先清 mie
+    mtip_i = 1; meip_i = 1; #1;
+    chk_rd(MIP, 32'h0000_0880, "mip 反映外部中断线");
+    if (ip_masked !== 3'b000) begin
+      errors++;
+      $display("FAIL: mie=0 时 ip_masked=%b 应为 000", ip_masked);
+    end
+    wr(MIE, 32'h0000_0880);            // MTIE+MEIE
+    #1;
+    if (ip_masked !== 3'b101) begin
+      errors++;
+      $display("FAIL: ip_masked=%b 应为 101", ip_masked);
+    end
+    meip_i = 0; #1;
+    if (ip_masked !== 3'b001) begin
+      errors++;
+      $display("FAIL: meip 撤销后 ip_masked=%b 应为 001", ip_masked);
+    end
+    // mie_status 反映 mstatus.MIE
+    wr(MSTATUS, 32'h0000_0008);
+    #1;
+    if (mie_status !== 1'b1) begin
+      errors++;
+      $display("FAIL: MIE=1 时 mie_status 应为 1");
+    end
+    wr(MSTATUS, 32'h0000_0000);
+    #1;
+    if (mie_status !== 1'b0) begin
+      errors++;
+      $display("FAIL: MIE=0 时 mie_status 应为 0");
+    end
+    mtip_i = 0;
+
+    if (errors == 0) $display("tb_csr_file: PASS (42 项检查)");
     else             $fatal(1, "tb_csr_file: FAILED (%0d 项错误)", errors);
     $finish;
   end

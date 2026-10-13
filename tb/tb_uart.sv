@@ -16,12 +16,13 @@ module tb_uart;
   wire         ready;
   wire         txd;
   logic        rxd;
+  wire         irq;
 
   uart #(.DEFAULT_DIV(16'd16)) dut (
     .clk(clk), .rst_n(rst_n),
     .valid(valid), .write(write), .addr(addr), .wdata(wdata),
     .rdata(rdata), .ready(ready),
-    .txd(txd), .rxd(rxd)
+    .txd(txd), .rxd(rxd), .irq(irq)
   );
 
   always #5 clk = ~clk;
@@ -102,18 +103,23 @@ module tb_uart;
     join
 
     // ---- RX 单字节 ----
+    if (irq !== 1'b0) begin errors++; $display("FAIL: 接收前 irq 应为 0"); end
     fork
       serial_tx(8'h3C);
       begin
         // 轮询 STATUS bit1（rx_valid）
         do begin reg_read(4'h4, st); end while (st[1] !== 1'b1);
+        // rx_valid 期间 irq 应为高
+        if (irq !== 1'b1) begin errors++; $display("FAIL: rx_valid 期间 irq 应为 1"); end
         reg_read(4'h0, rd);
         if (rd !== 32'h3C) begin
           errors++; $display("FAIL: RX 收到 %h 期望 3C", rd);
         end
-        // 读后 rx_valid 应清零
+        // 读后 rx_valid 应清零，irq 撤销
         reg_read(4'h4, st);
         if (st[1] !== 1'b0) begin errors++; $display("FAIL: 读 DATA 后 rx_valid 未清零"); end
+        #1;
+        if (irq !== 1'b0) begin errors++; $display("FAIL: 读 DATA 后 irq 未撤销"); end
       end
     join
 

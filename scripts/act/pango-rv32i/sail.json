@@ -1,17 +1,15 @@
-// Sail 0.15 参考模型配置：pango-rv32i（本仓库五级流水线核心，RV32IM）
+// Sail 0.15 参考模型配置：pango-rv32i（本仓库五级流水线核心，RV32IM_Zicsr）
 // 衍生自 Sail 官方 PicoRV32 示例配置（picorv32_axi, RV32IMC），保留原版权：
 // Copyright (c) 2026, Harvey Mudd College
 // SPDX-License-Identifier: Apache-2.0
-// 已按本核心实际架构修正扩展声明（M / Zmmul 已支持，Zca 不支持）。
+// 已按本核心实际架构修正扩展声明（M / Zmmul / Zicsr 已支持，Zca 不支持）并实现
+// M 态异常/中断（mtvec direct/vectored、MTI/MSI/MEI、WFI 睡眠唤醒）。
 //
-// 与本核心仍有意保留的差异（当前测试不触及；做异常/中断体系迭代前须重估）：
-// 1. 非对齐访存：本核心直接停机（无陷阱体系），此处仍为 AlignmentException——
-//    Sail 没有"停机"语义可配；UDB 声明 MISALIGNED_LDST=false，测试不会产生
-//    非对齐访问，该配置实际不被触发。
-// 2. dtb_address=0x1000 与 CLINT/IO 区布局是 Sail 平台与 ACT 框架的要求，
-//    与本 SoC 外设映射（0x1000_0000 起）无关；框架不传 DTB，该地址不会被写，
-//    仅 Sail 启动时把 a1 初始化为该值（随机测试已在生成侧初始化全部寄存器）。
-// 正文中其余 "PicoRV32" 注释为衍生来源的说明文字，所述"无 CSR"等事实同样适用于本核心。
+// 与本核心仍有意保留的差异（当前测试不触及）：
+// dtb_address=0x1000 与 CLINT/IO 区布局是 Sail 平台与 ACT 框架的要求，
+// 与本 SoC 外设映射（0x1000_0000 起）无关；框架不传 DTB，该地址不会被写，
+// 仅 Sail 启动时把 a1 初始化为该值（随机测试已在生成侧初始化全部寄存器）。
+// 正文中其余 "PicoRV32" 注释为衍生来源的说明文字。
 {
   "$schema": "https://github.com/riscv/sail-riscv/releases/download/0.15/sail_riscv_config_schema.json",
   "base": {
@@ -77,15 +75,14 @@
     // can range from a minimum of 2 upto a maximum of 24. If
     // unaligned values are written to these CSRs, the lowest bits
     // will be zeroed to respect the specified alignment.
-    // PicoRV32 has no mtvec CSR. Nothing in the selected (unprivileged) suites
-    // reads or writes it; these values only keep the Sail config schema happy.
+    // mtvec direct/vectored 均已实现（本核心支持两种模式）。
     "mtvec": {
       "direct": {
         "supported": true,
         "base_alignment": 2
       },
       "vectored": {
-        "supported": false,
+        "supported": true,
         "base_alignment": 2
       }
     },
@@ -129,19 +126,19 @@
     // cause information to be written into the appropriate
     // `xtval` registers.
     "xtval_nonzero": {
-      // PicoRV32 has no mtval CSR; nothing is ever reported.
-      "illegal_instruction": false,
+      // 本核心 mtval 行为：非法指令记录指令编码，非对齐/总线错误记录访存地址
+      "illegal_instruction": true,
       "virtual_instruction": false,
       "load_guest_page_fault": false,
       "samo_guest_page_fault": false,
       "fetch_guest_page_fault": false,
       "software_breakpoint": false,
       "hardware_breakpoint": false,
-      "load_address_misaligned": false,
-      "load_access_fault": false,
+      "load_address_misaligned": true,
+      "load_access_fault": true,
       "load_page_fault": false,
-      "samo_address_misaligned": false,
-      "samo_access_fault": false,
+      "samo_address_misaligned": true,
+      "samo_access_fault": true,
       "samo_page_fault": false,
       "fetch_address_misaligned": false,
       "fetch_access_fault": false,
@@ -213,9 +210,8 @@
     // checked before address translation. `misaligned_exceptions` in
     // `regions` is checked after address translation.
     "misaligned": {
-      // 本核心对任何非对齐 load/store/fetch 直接停机（无陷阱体系，见 rtl/core.sv）。
-      // Sail 没有"停机"语义可配，保留 AlignmentException 作为最接近的配置；
-      // 测试不产生非对齐访问（UDB: MISALIGNED_LDST=false），此项实际不被触发。
+      // 本核心非对齐 load/store 产生非对齐异常（陷入 mtvec），与 Sail 一致；
+      // UDB 声明 MISALIGNED_LDST=false，测试不产生非对齐访问。
       "exceptions": {
         "load_store": { "Some": "AlignmentException" },
         "vector": { "None": null },
@@ -333,12 +329,12 @@
       // the reservation set.
       "invalidate_on_same_hart_store": false
     },
-    // PicoRV32 has no mie or mip.
+    // 本核心已实现 MTI/MSI/MEI（mtimer 定时器、软件置 MSIP、UART/GPIO 外部线）
     "interrupts": {
       "machine": {
-        "software": { "supported": false },
-        "external": { "supported": false },
-        "timer": { "supported": false }
+        "software": { "supported": true },
+        "external": { "supported": true },
+        "timer": { "supported": true }
       }
     },
     "clint": {
@@ -562,14 +558,13 @@
     "Zicond": {
       "supported": false
     },
-    // PicoRV32 decodes only the fixed rdcycle/rdcycleh/rdinstret/rdinstreth
-    // encodings, not csrrw/csrrs/csrrc, so neither Zicntr nor Zicsr is present.
-    // https://github.com/YosysHQ/picorv32/blob/ef203c2b0a3fb793280f5114941416c425c5b461/picorv32.v#L1079-L1084
+    // 本核心无 cycle/time/instret 计数器 CSR（周期计数为 MMIO 外设）
     "Zicntr": {
       "supported": false
     },
+    // 本核心已实现 Zicsr（CSRRW/CSRRS/CSRRC 及立即数型）
     "Zicsr": {
-      "supported": false
+      "supported": true
     },
     // PicoRV32 decodes MISC-MEM only with funct3 == 0 (plain FENCE); fence.i
     // (funct3 == 1) falls through to the illegal-instruction path.

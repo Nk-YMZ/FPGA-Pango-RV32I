@@ -5,6 +5,7 @@
 //              R: 读出接收字节，读后自动清除 rx_valid
 //   0x4 STATUS R: bit0 = tx_full，bit1 = rx_valid
 //   0x8 DIV    RW: 波特率分频（每比特时钟数），默认 16
+// 中断：rx_valid 电平输出（irq），软件读 DATA 后撤销。
 `default_nettype none
 
 module uart #(
@@ -22,7 +23,9 @@ module uart #(
   output wire        ready,
   // 串口引脚
   output wire        txd,
-  input  wire        rxd
+  input  wire        rxd,
+  // 接收中断（rx_valid 电平）
+  output wire        irq
 );
 
   localparam int PTR = $clog2(FIFO_DEPTH);
@@ -70,6 +73,7 @@ module uart #(
 
   assign tx_load = !tx_busy && (count != 0);
   assign txd     = txd_r;
+  assign irq     = rx_valid;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

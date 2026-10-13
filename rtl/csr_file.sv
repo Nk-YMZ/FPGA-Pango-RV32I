@@ -5,8 +5,10 @@
 //   新值同拍末写入）；相邻 CSR 指令写后读相隔一个时钟沿，无数据相关。
 // - 仅 M 态：mstatus 仅 MIE(3)/MPIE(7) 可写，MPP(12:11) 硬连 2'b11；
 //   其余位读 0 写忽略（WARL）。
-// - mip：MSIP(3) 软件可写；MTIP(7)/MEIP(11) 为外部中断线，本阶段无中断源
-//   硬连 0（异常/中断体系迭代接入定时器与 UART/GPIO 时改为端口输入）。
+// - mip：MSIP(3) 软件可写；MTIP(7)/MEIP(11) 为外部中断线输入（mtip_i/
+//   meip_i，分别接 mtimer 与 UART/GPIO 聚合线）。
+// - 中断判定输出：mie_status 为 mstatus.MIE；ip_masked = mip & mie 的
+//   {MEI, MSI, MTI} 三位（未含 MIE），核心据此判定中断陷入与 WFI 唤醒。
 // - mtvec：支持 direct(0)/vectored(1) 两种模式；保留模式（>=2）写入时
 //   只更新 base、mode 保持原值（WARL）。复位值 0（=未配置，核心据此在
 //   无陷阱向量的程序中维持旧停机行为）。
@@ -40,7 +42,12 @@ module csr_file (
   input  wire [31:0] trap_mepc,
   input  wire [31:0] trap_tval,
   output wire [31:0] trap_pc,     // 陷入向量（vectored 模式仅中断按 code 偏移）
-  output wire        mtvec_valid  // mtvec 已被软件配置过（粘性）
+  output wire        mtvec_valid, // mtvec 已被软件配置过（粘性）
+  // 外部中断线与中断判定输出
+  input  wire        mtip_i,      // 定时器中断（mtimer）
+  input  wire        meip_i,      // 外部中断（UART/GPIO 聚合）
+  output wire        mie_status,  // mstatus.MIE
+  output wire [2:0]  ip_masked    // mip & mie：{MEI, MSI, MTI}
 );
 
   // M 态 CSR 地址
@@ -66,6 +73,8 @@ module csr_file (
 
   assign mepc        = mepc_r;
   assign mtvec_valid = mtvec_valid_r;
+  assign mie_status  = mstatus_mie;
+  assign ip_masked   = {meip_i & mie_meie, mip_msip & mie_msie, mtip_i & mie_mtie};
 
   // 陷入向量：direct 恒为 base；vectored 仅中断按 code×4 偏移，同步异常走 base
   assign trap_pc = (trap_intr && mtvec_r[1:0] == 2'b01)
@@ -85,7 +94,7 @@ module csr_file (
       CSR_MEPC:     rdata = mepc_r;
       CSR_MCAUSE:   rdata = {mcause_intr, 26'd0, mcause_code};
       CSR_MTVAL:    rdata = mtval_r;
-      CSR_MIP:      rdata = {20'd0, 1'b0, 3'd0, 1'b0, 3'd0, mip_msip, 3'd0};
+      CSR_MIP:      rdata = {20'd0, meip_i, 3'd0, mtip_i, 3'd0, mip_msip, 3'd0};
       default:      rdata = 32'd0;   // 地址合法性已在译码级过滤，不会到达
     endcase
   end

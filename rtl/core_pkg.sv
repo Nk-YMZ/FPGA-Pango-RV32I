@@ -60,6 +60,7 @@ package core_pkg;
     logic       is_csr;      // Zicsr CSR 指令（EX 级读改写，imm 携带 CSR 地址）
     logic       csr_imm;     // CSR 源为 uimm5（rs1 字段作立即数）
     logic       is_mret;     // MRET：EX 级重定向回 mepc 并恢复 mstatus
+    logic       is_wfi;      // WFI：EX 级进入睡眠，等待中断唤醒
     logic       is_ecall;
     logic       is_ebreak;
     logic       illegal;

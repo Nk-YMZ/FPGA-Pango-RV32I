@@ -27,6 +27,7 @@ module tb_core;
     .dmem_addr(dmem_addr), .dmem_wdata(dmem_wdata), .dmem_wstrb(dmem_wstrb),
     .dmem_pf(dmem_pf), .dmem_pf_addr(dmem_pf_addr),
     .dmem_rdata(dmem_rdata), .dmem_ready(dmem_ready), .dmem_err(1'b0),
+    .irq_timer(1'b0), .irq_external(1'b0),   // 核心级冒烟测试无中断源
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
 

@@ -2,11 +2,14 @@
 //
 // 地址映射（数据口）：
 //   0x0000_0000 - 0x0001_FFFF  RAM（物理 64KiB，范围内回绕；仿真可经参数放大）
-//   0x1000_0000 - 0x1000_00FF  GPIO
-//   0x1000_1000 - 0x1000_10FF  UART
+//   0x1000_0000 - 0x1000_00FF  GPIO（含输入电平中断 IE）
+//   0x1000_1000 - 0x1000_10FF  UART（RX 有效电平中断）
 //   0x1000_2000 - 0x1000_20FF  周期计数器（benchmark 计时用）
+//   0x1000_3000 - 0x1000_30FF  mtimer（mtime/mtimecmp，定时器中断）
 //   其余                        未映射：err=1，核心停机（HALT_BUS）
 // 指令口：仅从 0x0 开始的 imem 取指。
+// 中断线：mtimer → MTIP；UART RX 与 GPIO 输入相或 → MEIP（软件读外设
+// 状态判源，撤销对应电平）。
 `default_nettype none
 
 module soc_top #(
@@ -42,23 +45,28 @@ module soc_top #(
   wire sel_gpio = (bus_addr[31:8] == 24'h10_00_00);
   wire sel_uart = (bus_addr[31:8] == 24'h10_00_10);
   wire sel_cctr = (bus_addr[31:8] == 24'h10_00_20);
+  wire sel_mtim = (bus_addr[31:8] == 24'h10_00_30);
 
   wire        dmem_valid = bus_valid && sel_dmem;
   wire        gpio_valid = bus_valid && sel_gpio;
   wire        uart_valid = bus_valid && sel_uart;
   wire        cctr_valid = bus_valid && sel_cctr;
-  wire [31:0] dmem_rdata, gpio_rdata, uart_rdata, cctr_rdata;
+  wire        mtim_valid = bus_valid && sel_mtim;
+  wire [31:0] dmem_rdata, gpio_rdata, uart_rdata, cctr_rdata, mtim_rdata;
   wire        dmem_ready, uart_ready;
-  wire        gpio_ready, cctr_ready;
+  wire        gpio_ready, cctr_ready, mtim_ready;
+  wire        uart_irq, gpio_irq, mtim_irq;
 
   assign bus_ready = sel_dmem ? dmem_ready :
                      sel_gpio ? gpio_ready :
                      sel_uart ? uart_ready :
-                     sel_cctr ? cctr_ready : 1'b1;
-  assign bus_err   = bus_valid && !(sel_dmem || sel_gpio || sel_uart || sel_cctr);
+                     sel_cctr ? cctr_ready :
+                     sel_mtim ? mtim_ready : 1'b1;
+  assign bus_err   = bus_valid && !(sel_dmem || sel_gpio || sel_uart || sel_cctr || sel_mtim);
   assign bus_rdata = sel_gpio ? gpio_rdata :
                      sel_uart ? uart_rdata :
-                     sel_cctr ? cctr_rdata : dmem_rdata;
+                     sel_cctr ? cctr_rdata :
+                     sel_mtim ? mtim_rdata : dmem_rdata;
 
   // ---- 子模块 ----
   core core_i (
@@ -68,6 +76,7 @@ module soc_top #(
     .dmem_addr(bus_addr), .dmem_wdata(bus_wdata), .dmem_wstrb(bus_wstrb),
     .dmem_pf(bus_pf), .dmem_pf_addr(bus_pf_addr),
     .dmem_rdata(bus_rdata), .dmem_ready(bus_ready), .dmem_err(bus_err),
+    .irq_timer(mtim_irq), .irq_external(uart_irq | gpio_irq),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict)
   );
 
@@ -85,20 +94,26 @@ module soc_top #(
     .clk(clk), .rst_n(rst_n),
     .valid(uart_valid), .write(bus_write), .addr(bus_addr[3:0]), .wdata(bus_wdata),
     .rdata(uart_rdata), .ready(uart_ready),
-    .txd(uart_txd), .rxd(uart_rxd)
+    .txd(uart_txd), .rxd(uart_rxd), .irq(uart_irq)
   );
 
   gpio gpio_i (
     .clk(clk), .rst_n(rst_n),
     .valid(gpio_valid), .write(bus_write), .addr(bus_addr[3:0]), .wdata(bus_wdata),
     .rdata(gpio_rdata), .ready(gpio_ready),
-    .gpio_out(gpio_out), .gpio_in(gpio_in)
+    .gpio_out(gpio_out), .gpio_in(gpio_in), .irq(gpio_irq)
   );
 
   cyclectr cyclectr_i (
     .clk(clk), .rst_n(rst_n),
     .valid(cctr_valid), .write(bus_write), .addr(bus_addr[3:0]),
     .rdata(cctr_rdata), .ready(cctr_ready)
+  );
+
+  mtimer mtimer_i (
+    .clk(clk), .rst_n(rst_n),
+    .valid(mtim_valid), .write(bus_write), .addr(bus_addr[3:0]), .wdata(bus_wdata),
+    .rdata(mtim_rdata), .ready(mtim_ready), .irq(mtim_irq)
   );
 
 endmodule

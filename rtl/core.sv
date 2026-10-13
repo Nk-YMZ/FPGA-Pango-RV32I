@@ -20,12 +20,16 @@
 //   用返回地址栈（RAS）在 ID 级预测目标，调用指令进入 EX 时压栈。EX 级解析
 //   真实结果，不一致则冲刷 IF/ID 按正确目标重定向，并撤销对应 RAS 弹栈恢复
 //   现场；其余 JALR（间接跳转）不预测，EX 级重定向。
-// - M 态特权子集（Zicsr + 同步异常）：CSR 指令在 EX 级读改写（旧值作 rd
+// - M 态特权子集（Zicsr + 异常/中断）：CSR 指令在 EX 级读改写（旧值作 rd
 //   写回数据，无 CSR 数据相关）；MRET 在 EX 级重定向回 mepc 并恢复
 //   mstatus.MIE。同步异常精确陷入：ecall/ebreak/非法指令在 ID 级发现、
 //   随标记到 EX 级触发（年长指令当拍完成，年轻指令冲刷）；非对齐访存/
-//   未映射地址在 MEM 级触发（冲刷 IF/ID/EX）。陷入写 mepc/mcause/mtval/
-//   mstatus 并转向 mtvec（direct/vectored）。CSR 堆见 rtl/csr_file.sv。
+//   未映射地址在 MEM 级触发（冲刷 IF/ID/EX）。中断（MTI/MSI/MEI）在 EX
+//   级采样：仅当 EX 级含未退休指令且流水线流动时触发，mepc=本条 pc、
+//   冲刷后 handler 返回重执行，边界精确；乘除停顿期间不采样（延迟最多
+//   一个除法周期）。陷入优先级：MEM 故障 > EX 异常 > 中断 > 分支重定向。
+//   WFI 在 EX 级进入睡眠（冻结取指），mip&mie 非零即唤醒（不看 MIE）。
+//   CSR 堆见 rtl/csr_file.sv。
 // - 停机兼容策略：mtvec 未被软件配置过（csr_file 的 mtvec_valid=0）时，
 //   异常仍维持旧行为——ECALL/EBREAK/非法指令在 ID 级被发现后停止取指、
 //   排干流水线，随流水线走到 WB 后置 halted；非对齐访存/未映射地址在 MEM
@@ -56,6 +60,9 @@ module core #(
   input  wire [31:0]           dmem_rdata,
   input  wire                  dmem_ready,
   input  wire                  dmem_err,       // 访问未映射地址
+  // 中断线（电平）：定时器接 MTIP，外设聚合接 MEIP
+  input  wire                  irq_timer,
+  input  wire                  irq_external,
   // 状态与调试
   output reg                   halted,
   output core_pkg::halt_code_t halt_code,
@@ -83,15 +90,25 @@ module core #(
   logic        id_halt_accept;
   logic        trap_ex;        // EX 级异常标记触发陷入（ecall/ebreak/非法指令）
   logic        trap_mem;       // MEM 级故障触发陷入（非对齐/总线错误）
+  logic        irq_take;       // EX 级采样到中断，触发中断陷入
+  logic        wfi_enter;      // WFI 在 EX 级进入睡眠
+  logic        wfi_sleep;      // WFI 睡眠中（冻结取指，等待中断唤醒）
+  wire  [2:0]  ip_masked;      // mip & mie 的 {MEI, MSI, MTI}（csr_file 输出）
+  wire         mie_status;     // mstatus.MIE
 
   // 下一取指地址。复位期间固定为 RESET_PC，保证 BRAM 在复位释放沿采到首地址；
-  // 暂停/停机时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
-  // 陷入优先级最高：MEM 级故障年长于 EX 级异常标记，年长于一切重定向。
+  // 暂停/停机/WFI 睡眠时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
+  // 陷入（含中断）优先级最高：MEM 级故障年长于 EX 级异常标记与中断。
+  // WFI 进入睡眠当拍把 pc 定为 wfi+4（后续指令已被冲刷，唤醒后从此重取）。
   wire [31:0] csr_trap_pc;
+  wire        wfi_wake = (ip_masked != 3'b000);   // mip&mie 非零即唤醒（不看 MIE）
+  wire        wfi_wait = wfi_sleep && !wfi_wake;
   wire [31:0] pc_next = !rst_n                  ? RESET_PC :
-                        (stall_young || draining || halted) ? pc :
+                        (stall_young || draining || halted || wfi_wait) ? pc :
                         trap_mem                ? csr_trap_pc :
                         trap_ex                 ? csr_trap_pc :
+                        irq_take                ? csr_trap_pc :
+                        wfi_enter               ? idex_pc + 32'd4 :
                         ex_redirect             ? ex_redirect_target :
                         id_redirect             ? id_redirect_target :
                                                   pc + 32'd4;
@@ -113,7 +130,7 @@ module core #(
     end else if (stall_young) begin
       // 保持
     end else if (ex_redirect || id_redirect || id_halt_accept || draining
-                 || trap_ex || trap_mem) begin
+                 || trap_ex || trap_mem || irq_take || wfi_enter) begin
       ifid_instr <= NOP;                    // 冲刷 / 停机后停止取指
     end else begin
       ifid_pc    <= pc;
@@ -164,9 +181,9 @@ module core #(
   wire ret_predict_d = ret_d && !ras_empty;
 
   wire ras_push_d = call_d        && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_ex && !trap_mem;
+                    && !trap_ex && !trap_mem && !irq_take;
   wire ras_pop_d  = ret_predict_d && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_ex && !trap_mem;
+                    && !trap_ex && !trap_mem && !irq_take;
 
   ras #(.DEPTH(RAS_DEPTH)) ras_i (
     .clk          (clk),
@@ -185,7 +202,8 @@ module core #(
   // （JAL 目标译码即确定；返回跳转以 RAS 栈顶为预测目标）
   assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
                                || ret_predict_d)
-                              && !draining && !halted && !ex_redirect && !trap_ex && !trap_mem;
+                              && !draining && !halted && !ex_redirect && !trap_ex && !trap_mem
+                              && !irq_take;
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
   // 异常请求（被 EX 级重定向或年长陷入杀死时不接受——说明它在错误路径上）
@@ -194,7 +212,7 @@ module core #(
   wire mtvec_valid;
   wire halt_req_d = ctrl_d.is_ecall || ctrl_d.is_ebreak || ctrl_d.illegal;
   wire exc_ok_d   = halt_req_d && !ex_redirect && !stall_young
-                    && !trap_ex && !trap_mem;
+                    && !trap_ex && !trap_mem && !irq_take;
   assign id_halt_accept = exc_ok_d && !mtvec_valid;
 
   halt_code_t halt_code_d;
@@ -234,6 +252,7 @@ module core #(
   logic [31:0] idex_pred_target;  // RAS 预测的返回目标（兼作误预测恢复的旧栈顶）
   logic        idex_ras_pop;      // 本条在 ID 级弹过栈
   logic        idex_ras_push;     // 本条进入 EX 时压过栈
+  logic        idex_valid;        // EX 级含未退休指令（中断采样的精确边界依据）
   halt_code_t  idex_halt;
   logic [31:0] idex_exc_tval;     // 异常的 mtval（非法指令为指令编码，其余 0）
 
@@ -251,15 +270,17 @@ module core #(
       idex_pred_target <= 32'd0;
       idex_ras_pop    <= 1'b0;
       idex_ras_push   <= 1'b0;
+      idex_valid      <= 1'b0;
       idex_halt       <= HALT_NONE;
       idex_exc_tval   <= 32'd0;
     end else if (stall_young) begin
       // 保持
-    end else if (ex_redirect || trap_ex || trap_mem) begin
+    end else if (ex_redirect || trap_ex || trap_mem || irq_take || wfi_enter) begin
       idex_ctrl       <= '0;                // 冲刷为气泡
       idex_pred_taken <= 1'b0;
       idex_ras_pop    <= 1'b0;
       idex_ras_push   <= 1'b0;
+      idex_valid      <= 1'b0;
       idex_halt       <= HALT_NONE;
       idex_exc_tval   <= 32'd0;
     end else begin
@@ -280,6 +301,7 @@ module core #(
       idex_pred_target <= ras_top;
       idex_ras_pop     <= ret_predict_d && !draining && !halted;
       idex_ras_push    <= ras_push_d;
+      idex_valid       <= 1'b1;
       idex_halt       <= halt_req_d ? halt_code_d : HALT_NONE;
       idex_exc_tval   <= (halt_req_d && ctrl_d.illegal) ? ifid_instr : 32'd0;
     end
@@ -326,8 +348,8 @@ module core #(
     endcase
   end
   // CSRRS/CSRRC 源为 x0/uimm=0 时纯读不写（寄存器型与立即数型的源字段
-  // 同为 idex_rs1）；CSRRW 恒写。trap_mem 同拍时本条被冲刷，抑制写。
-  wire csr_we_e = idex_ctrl.is_csr && !halted && !trap_mem &&
+  // 同为 idex_rs1）；CSRRW 恒写。本条被陷入（含中断）冲刷的同拍抑制写。
+  wire csr_we_e = idex_ctrl.is_csr && !halted && !trap_mem && !irq_take &&
                   (idex_ctrl.funct3[1:0] == 2'b01 || idex_rs1 != 5'd0);
 
   // ---- 同步异常陷入（EX 级触发）----
@@ -345,10 +367,43 @@ module core #(
       default:     exc_code_e = 5'd2;   // 非法指令
     endcase
   end
-  wire        trap_en   = trap_ex || trap_mem;
-  wire [4:0]  trap_code;
-  wire [31:0] trap_mepc = trap_mem ? exmem_pc  : idex_pc;
-  wire [31:0] trap_tval = trap_mem ? exmem_alu : idex_exc_tval;
+
+  // ---- 中断采样（EX 级，优先级：MEM 故障 > EX 异常 > 中断）----
+  // 仅在 EX 级含未退休指令（idex_valid）且流水线流动时采样：mepc=本条 pc，
+  // 本条被冲刷、handler 返回后重执行，边界精确。气泡拍不采样（pc 已不可靠），
+  // 电平中断保持 pending，最多晚几拍。乘除停顿（stall_young）期间不采样，
+  // 中断延迟最多一个除法周期；EX 级重定向（分支/mret）与陷入同拍优先。
+  // mtvec 未配置（停机兼容模式）时不采样中断。
+  wire       irq_pending = mie_status && (ip_masked != 3'b000);
+  wire [4:0] irq_code = ip_masked[2] ? 5'd11 :   // MEI 优先
+                        ip_masked[1] ? 5'd3  :   // MSI
+                                       5'd7;     // MTI
+  assign irq_take = irq_pending && mtvec_valid && idex_valid && !stall_young
+                    && !draining && !halted && !wfi_sleep
+                    && !ex_redirect && !trap_ex && !trap_mem;
+
+  // ---- WFI：EX 级进入睡眠，冻结取指；mip&mie 非零（不看 MIE）唤醒 ----
+  // 进入当拍冲刷 IF/ID、pc 定为 wfi+4；唤醒后正常流动，若 MIE=1 且中断
+  // 仍未撤则随后按中断陷入（被唤醒的第一条指令在 EX 级被采样，不多执行）。
+  assign wfi_enter = idex_ctrl.is_wfi && idex_valid && !stall_young && !draining
+                     && !halted && !irq_take && !trap_mem;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n)          wfi_sleep <= 1'b0;
+    else if (wfi_wake)   wfi_sleep <= 1'b0;
+    else if (wfi_enter)  wfi_sleep <= 1'b1;
+  end
+
+  wire        trap_en   = trap_ex || trap_mem || irq_take;
+  wire        trap_intr = irq_take;
+  wire [4:0]  trap_code = irq_take ? irq_code :
+                          trap_mem ? (mem_req && misaligned
+                                      ? (exmem_ctrl.mem_write ? 5'd6 : 5'd4)
+                                      : (exmem_ctrl.mem_write ? 5'd7 : 5'd5))
+                                   : exc_code_e;
+  wire [31:0] trap_mepc = trap_mem ? exmem_pc : idex_pc;
+  wire [31:0] trap_tval = trap_mem ? exmem_alu :
+                          irq_take ? 32'd0 : idex_exc_tval;
 
   csr_file csr_i (
     .clk         (clk),
@@ -361,12 +416,16 @@ module core #(
     .mret        (mret_commit_e),
     .mepc        (csr_mepc),
     .trap_en     (trap_en),
-    .trap_intr   (1'b0),           // 本阶段仅同步异常，中断迭代接入
+    .trap_intr   (trap_intr),
     .trap_code   (trap_code),
     .trap_mepc   (trap_mepc),
     .trap_tval   (trap_tval),
     .trap_pc     (csr_trap_pc),
-    .mtvec_valid (mtvec_valid)
+    .mtvec_valid (mtvec_valid),
+    .mtip_i      (irq_timer),
+    .meip_i      (irq_external),
+    .mie_status  (mie_status),
+    .ip_masked   (ip_masked)
   );
 
   wire [31:0] alu_a = idex_ctrl.src_a_pc  ? idex_pc  : rs1_e;
@@ -437,21 +496,21 @@ module core #(
   // mstatus 恢复（MIE←MPIE）在停顿解除拍与重定向同步提交；
   // 同拍年长 MEM 级陷入时本条被冲刷，抑制提交
   wire mret_e = idex_ctrl.is_mret;
-  assign mret_commit_e = mret_e && !stall && !draining && !halted && !trap_mem;
+  assign mret_commit_e = mret_e && !stall && !draining && !halted && !trap_mem && !irq_take;
 
   assign ex_redirect        = ((is_cti_e && (actual_taken_e != idex_pred_taken))
                                || jalr_pred_miss_e || mret_e)
                               && !draining && !halted;
   assign ex_redirect_target = mret_e        ? csr_mepc :
                               actual_taken_e ? target_e : idex_pc + 32'd4;
-  assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch && !stall && !trap_mem;
+  assign dbg_mispredict     = ex_redirect && idex_ctrl.is_branch && !stall && !trap_mem && !irq_take;
 
   // RAS 恢复：返回预测失误时撤销本条在 ID 级的弹栈；年长 MEM 级陷入冲刷
   // 本条时同样撤销（栈仅作预测，撤销保持指标准确性）。纯弹栈数据未擦除，指针
   // 回退即可；先弹后压（rd、rs1 同为 link）栈顶槽已被 pc+4 覆盖，写回随流水
   // 线保存的旧栈顶（idex_pred_target）。stall 期间流水线冻结，恢复与重定向
   // 同在 stall 解除拍生效，只发生一次
-  wire ras_restore_e = ((ex_redirect && idex_ctrl.is_jalr) || trap_mem)
+  wire ras_restore_e = ((ex_redirect && idex_ctrl.is_jalr) || trap_mem || irq_take)
                        && idex_ras_pop && !stall;
   assign ras_undo_pop_e = ras_restore_e && !idex_ras_push;
   assign ras_rewrite_e  = ras_restore_e &&  idex_ras_push;
@@ -477,8 +536,8 @@ module core #(
       exmem_addr_early <= 1'b0;
       exmem_halt     <= HALT_NONE;
     end else if (!stall) begin
-      if (muldiv_stall || trap_ex || trap_mem) begin
-        // 乘除等待 / 陷入冲刷期间向 MEM 级注入气泡（同重定向冲刷），MEM/WB 继续推进
+      if (muldiv_stall || trap_ex || trap_mem || irq_take || wfi_enter) begin
+        // 乘除等待 / 陷入（含中断）/ WFI 睡眠向 MEM 级注入气泡，MEM/WB 继续推进
         exmem_ctrl       <= '0;
         exmem_addr_early <= 1'b0;
         exmem_halt       <= HALT_NONE;
@@ -559,10 +618,6 @@ module core #(
   // IF/ID/EX，mepc=本条 pc，mtval=访存地址）；未配置 → 停机（见停机控制）
   wire mem_fault = (mem_req && misaligned) || (mem_acc && dmem_err);
   assign trap_mem = mem_fault && mtvec_valid && !halted;
-  assign trap_code = trap_mem ? (mem_req && misaligned
-                                 ? (exmem_ctrl.mem_write ? 5'd6 : 5'd4)
-                                 : (exmem_ctrl.mem_write ? 5'd7 : 5'd5))
-                              : exc_code_e;
 
   // MEM 级指令的写回值（同时用于向 EX 前递）
   assign exmem_fwd_data = (exmem_ctrl.wb_src == WB_MEM) ? load_data :

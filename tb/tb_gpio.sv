@@ -12,12 +12,13 @@ module tb_gpio;
   wire         _unused_ready = &{1'b0, ready};  // GPIO 始终 ready，测试中不用
   wire [31:0]  gpio_out;
   logic [31:0] gpio_in;
+  wire         irq;
 
   gpio dut (
     .clk(clk), .rst_n(rst_n),
     .valid(valid), .write(write), .addr(addr), .wdata(wdata),
     .rdata(rdata), .ready(ready),
-    .gpio_out(gpio_out), .gpio_in(gpio_in)
+    .gpio_out(gpio_out), .gpio_in(gpio_in), .irq(irq)
   );
 
   always #5 clk = ~clk;
@@ -74,6 +75,20 @@ module tb_gpio;
     if (gpio_out !== 32'hDEAD_BEEF) begin
       errors++; $display("FAIL: gpio_out=%h 期望 DEADBEEF", gpio_out);
     end
+
+    // ---- 输入电平中断：irq = |(IN & IE) ----
+    if (irq !== 1'b0) begin errors++; $display("FAIL: IE=0 时 irq 应为 0"); end
+    reg_write(4'h8, 32'h0000_0008);       // 使能 bit3（IN=0x12345678 的 bit3=1）
+    reg_read(4'h8, rd);
+    if (rd !== 32'h0000_0008) begin
+      errors++; $display("FAIL: IE 读回 %h 期望 00000008", rd);
+    end
+    #1;
+    if (irq !== 1'b1) begin errors++; $display("FAIL: IE & IN 非零时 irq 应为 1"); end
+    reg_write(4'h8, 32'h0000_0001);       // 改使能 bit1（IN 的 bit1=0）
+    #1;
+    if (irq !== 1'b0) begin errors++; $display("FAIL: IE & IN 为零时 irq 应为 0"); end
+    reg_write(4'h8, 32'h0000_0000);
 
     if (errors == 0) $display("tb_gpio: PASS");
     else             $fatal(1, "tb_gpio: FAILED (%0d 项错误)", errors);

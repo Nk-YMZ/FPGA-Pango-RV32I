@@ -1,8 +1,8 @@
 // RV32IM 指令译码器：纯组合逻辑，输出控制信号包与立即数
 // 约定：
 // - FENCE/FENCE.I 按 NOP 处理（本阶段无 Cache，无需任何动作）
-// - ECALL/EBREAK 单独标记，由核心走停机流程；MRET 与 Zicsr CSR 指令已实现
-// - 其余 SYSTEM 指令（WFI、未实现的 CSR 地址等）及无法识别的编码一律置 illegal，
+// - ECALL/EBREAK 单独标记，由核心走停机/陷入流程；MRET/WFI 与 Zicsr CSR 已实现
+// - 其余 SYSTEM 指令（未实现的 CSR 地址等）及无法识别的编码一律置 illegal，
 `default_nettype none
 
 module decoder (
@@ -176,7 +176,8 @@ module decoder (
             if (instr == 32'h0000_0073)      ctrl.is_ecall  = 1'b1;
             else if (instr == 32'h0010_0073) ctrl.is_ebreak = 1'b1;
             else if (instr == 32'h3020_0073) ctrl.is_mret   = 1'b1;
-            else ctrl.illegal = 1'b1;        // WFI 等未实现
+            else if (instr == 32'h1050_0073) ctrl.is_wfi    = 1'b1;
+            else ctrl.illegal = 1'b1;
           end
           // Zicsr：CSRRW/CSRRS/CSRRC 及立即数型（funct3[2] 区分寄存器/uimm5 源）
           3'b001, 3'b010, 3'b011, 3'b101, 3'b110, 3'b111: begin

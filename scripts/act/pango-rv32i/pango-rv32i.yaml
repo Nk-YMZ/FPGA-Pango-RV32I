@@ -1,19 +1,20 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/riscv/riscv-unified-db/main/spec/schemas/config_schema.json
 # UDB 架构配置：pango-rv32i 五级流水线核心
-# RV32IM（I 2.1 + M 2.0），无 CSR、无陷阱体系（ecall/ebreak/非法指令一律停机而非陷入），
-# 参数写法参照官方仓库中同为"无 CSR"的 picorv32 配置。
+# RV32IM_Zicsr（I 2.1 + M 2.0 + Zicsr 2.0），M 态异常/中断体系
+# （同步异常精确陷入 mtvec，MTI/MSI/MEI 中断，WFI），参数写法参照官方仓库 picorv32 配置。
 ---
 $schema: config_schema.json#
 kind: architecture configuration
 type: fully configured
 name: pango-rv32i
-description: 紫光同创赛道 RV32IM 五级流水线 CPU（无特权架构，哈佛结构，片上 BRAM）
+description: 紫光同创赛道 RV32IM_Zicsr 五级流水线 CPU（M 态特权架构，哈佛结构，片上 BRAM）
 implemented_extensions:
   - { name: I, version: "= 2.1" }
   - { name: M, version: "= 2.0" }
   # UDB 中 M 依赖 Zmmul（乘法子集），须一并声明
   - { name: Zmmul, version: "= 1.0.0" }
-  # UDB 要求至少声明 Sm 才存在以下参数；本核心无任何 CSR，由参数如实描述
+  - { name: Zicsr, version: "= 2.0" }
+  # UDB 要求至少声明 Sm 才存在以下参数
   - { name: Sm, version: "= 1.11.0" }
 
 params:
@@ -25,29 +26,30 @@ params:
   MUTABLE_MISA_M: false
   NON_STANDARD_EXTENSION_IMPLEMENTED: false
 
-  # 无陷阱体系：任何异常条件都直接停机，不产生陷入
-  PRECISE_SYNCHRONOUS_EXCEPTIONS: false
-  TRAP_ON_ECALL_FROM_M: false
-  TRAP_ON_EBREAK: false
-  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: false
-  TRAP_ON_RESERVED_INSTRUCTION: false
-  TRAP_ON_UNIMPLEMENTED_CSR: false
+  # 同步异常精确陷入（mtvec 未配置的仿真程序由 testbench 停机兜底，架构层面为陷入）
+  PRECISE_SYNCHRONOUS_EXCEPTIONS: true
+  TRAP_ON_ECALL_FROM_M: true
+  TRAP_ON_EBREAK: true
+  TRAP_ON_UNIMPLEMENTED_INSTRUCTION: true
+  TRAP_ON_RESERVED_INSTRUCTION: true
+  TRAP_ON_UNIMPLEMENTED_CSR: true
   TRAP_ON_ILLEGAL_WLRL: false
 
-  WFI_FINITE: false
+  # WFI 会睡眠直至 mip&mie 非零被唤醒
+  WFI_FINITE: true
   WFI_U_MODE: false
 
   REPORT_VA_IN_MTVAL_ON_BREAKPOINT: false
-  REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: false
-  REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED: true
   REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED: false
-  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: false
-  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: false
+  REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT: true
+  REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT: true
   REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT: false
-  REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: false
+  REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION: true
   MTVAL_WIDTH: 32
 
-  # 非对齐访存硬件不支持（停机）
+  # 非对齐访存硬件不支持（产生非对齐异常）
   MISALIGNED_LDST: false
   MISALIGNED_LDST_EXCEPTION_PRIORITY: high
 
@@ -58,9 +60,16 @@ params:
 
   PMA_GRANULARITY: 2
 
-  MTVEC_ACCESS: ro
-  MTVEC_MODES: [0]
+  MTVEC_ACCESS: rw
+  MTVEC_MODES: [0, 1]
   MTVEC_ILLEGAL_WRITE_BEHAVIOR: custom
+  MTVEC_BASE_ALIGNMENT_DIRECT: 4
+  MTVEC_BASE_ALIGNMENT_VECTORED: 4
+
+  # M 态中断：定时器（mtimer MMIO）/ 软件（mip.MSIP）/ 外部（UART、GPIO 聚合线）
+  MEI_INTR_IMPL: true
+  MSI_INTR_IMPL: true
+  MTI_INTR_IMPL: true
 
   MCOUNTINHIBIT_IMPLEMENTED: false
   # UDB 要求的 32 位计数器使能数组（本核心无计数器，全 false）
