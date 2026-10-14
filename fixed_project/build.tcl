@@ -1,0 +1,6 @@
+compile
+synthesize
+dev_map
+pnr
+report_timing
+gen_bit_stream
