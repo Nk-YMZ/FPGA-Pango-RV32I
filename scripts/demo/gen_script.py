@@ -75,6 +75,13 @@ def scenario_timeout() -> list:
     return [(OPEN_IDLE, REQ)]
 
 
+def scenario_broadcast() -> list:
+    """广播请求（addr=0）：Modbus 广播不期待回复，应如实打印 REQ 但不
+    挂起待回复、不报超时（FC03 广播本身非法，属防御性口径验证）"""
+    breq = frame(bytes([0x00, 0x03, 0x00, 0x00, 0x00, 0x02]))
+    return [(OPEN_IDLE, breq)]
+
+
 def scenario_stress(pairs: int, gap: int) -> list:
     """压力测试：pairs 对请求+回复背靠背，帧间间隔统一 gap clk。
     间隔必须 > 切帧阈值（3.5 字符 = 1232 clk）否则并帧；当间隔小于
@@ -94,6 +101,7 @@ SCENARIOS = {
     "exception": scenario_exception,
     "unsupported_fc": scenario_unsupported_fc,
     "timeout": scenario_timeout,
+    "broadcast": scenario_broadcast,
 }
 
 

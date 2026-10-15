@@ -55,7 +55,8 @@ def parse_line(line: str):
     if line.startswith(("OK", "ERR")):
         tag, _, rest = line.partition(" ")
         return (tag.lower(), {"text": rest})
-    if line.startswith("timeout="):
+    if re.match(r"^\w+=", line):
+        # 纯 key=value 行（配置查询响应，如 timeout=5632 / bitdiv=32）
         return ("cfg", _kvs(line))
     if line.startswith("cmds:"):
         return ("help", {"text": line})

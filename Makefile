@@ -129,7 +129,7 @@ bench: $(SOC_TB)
 # 实现交叉验证）。判定链双重：固件自检与场景无关的不变式后停机报码（tb 核
 # 停机码 + GPIO 魔数 + 脚本发完），同时 UART 输出经 +UARTLOG 落盘后与
 # scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
-DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout
+DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast
 DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCENARIOS)))
 
 demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)

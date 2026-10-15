@@ -94,9 +94,13 @@ static void process_frame(void)
     }
     if (flen == 8) {                /* FC03 请求：addr fc start_hi start_lo n_hi n_lo crc */
         st.requests++;
-        pend_valid  = 1;
-        pend_addr   = addr;
-        pend_end_ts = f_last;
+        /* 广播（addr=0）不挂起待回复：Modbus 广播不期待任何回复，挂起只会
+           误报超时（FC03 广播本身非法，此处是防御性口径） */
+        if (addr != 0u) {
+            pend_valid  = 1;
+            pend_addr   = addr;
+            pend_end_ts = f_last;
+        }
         app_put_str("REQ addr=");
         app_put_hex(addr, 2);
         app_put_str(" start=");
