@@ -13,8 +13,10 @@
       --mode normal [--delay-ms 50]
   python3 device_sim.py --selftest   # 无硬件自检（各模式帧构造）
 
-依赖 pyserial（仅实际开串口时需要）。帧切分按 3.5 字符空闲（9600 下约
-4 ms；≥19200 波特应按 Modbus 规范改用固定阈值，见 deploy.md 3.4）。
+依赖 pyserial（仅实际开串口时需要；Arch 用 pacman -S python-pyserial，
+Windows 用 pip install pyserial，--port COMx）。帧切分按 3.5 字符空闲
+（9600 下约 4 ms；≥19200 波特应按 Modbus 规范改用固定阈值，见
+deploy.md 3.4）。
 """
 import argparse
 import sys
@@ -35,6 +37,18 @@ def respond(mode: str, addr: int, delay_ms: float) -> bytes | None:
     return rsp
 
 
+def device_selftest() -> None:
+    """无硬件自检：mbus 帧构造 + 各模式响应帧核对"""
+    selftest()
+    # 各模式帧构造核对（delay/no_reply 不构造帧，只改行为）
+    assert respond("normal", 1, 0) == bytes([0x01, 0x03, 0x04, 0x01,
+                                             0x00, 0x02, 0x58,
+                                             0xFB, 0x55])
+    assert respond("bad_crc", 1, 0)[-1] == 0x55 ^ 0xFF
+    assert respond("no_reply", 1, 0) is None
+    print("device_sim selftest: PASS")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Modbus RTU 设备模拟（故障注入）")
     ap.add_argument("--port", default="/dev/ttyUSB1")
@@ -47,14 +61,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.selftest:
-        selftest()
-        # 各模式帧构造核对（delay/no_reply 不构造帧，只改行为）
-        assert respond("normal", 1, 0) == bytes([0x01, 0x03, 0x04, 0x01,
-                                                 0x00, 0x02, 0x58,
-                                                 0xFB, 0x55])
-        assert respond("bad_crc", 1, 0)[-1] == 0x55 ^ 0xFF
-        assert respond("no_reply", 1, 0) is None
-        print("device_sim selftest: PASS")
+        device_selftest()
         return
 
     import serial    # 延迟导入：selftest 不依赖 pyserial

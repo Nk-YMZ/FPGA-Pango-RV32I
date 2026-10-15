@@ -7,8 +7,9 @@
       [--reg 0] [--count 2] [--interval 1.0] [--times 0(无限)]
   python3 controller_sim.py --selftest   # 无硬件自检（帧构造/CRC）
 
-依赖 pyserial（仅实际开串口时需要；建议 pacman -S python-pyserial，
-勿用 pip 直装系统 Python）。注意别把结果串口误当总线发送端。
+依赖 pyserial（仅实际开串口时需要；Arch 用 pacman -S python-pyserial，
+勿用 pip 直装系统 Python；Windows 用 pip install pyserial，--port COMx）。
+注意别把结果串口误当总线发送端。
 """
 import argparse
 import sys

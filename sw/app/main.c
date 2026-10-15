@@ -8,7 +8,8 @@
  * DEMO_MODE（仿真自检形态，make demo 用）：时间窗收敛后自检与场景无关的
  * 不变式，经 finish() 停机报码；场景级期望由 Makefile 将 UART 输出与
  * scripts/demo/golden/ 逐场景 diff 判定（仿真输出逐拍确定）。
- * 非 DEMO_MODE（上板连续运行形态）：永不退出，命令接口由后续迭代加入。
+ * 非 DEMO_MODE（上板连续运行形态）：永不退出，带 UART 命令接口
+ *（stat/clear/timeout/perf/help，见 cmd_exec）。
  * 场景脚本由 scripts/demo/gen_script.py 生成（CRC 独立计算，交叉验证）。 */
 #include <stdint.h>
 #include "proto.h"
@@ -126,7 +127,8 @@ static void poll_once(void)
 
 static void print_stats(void)
 {
-    const proto_stats_t *s = proto_stats();    app_put_str("STAT frames=");
+    const proto_stats_t *s = proto_stats();
+    app_put_str("STAT frames=");
     app_put_dec(s->frames);
     app_put_str(" req=");
     app_put_dec(s->requests);
@@ -211,6 +213,10 @@ static void cmd_exec(void)
         print_stats();
     } else if (streq(cmd_buf, "clear")) {
         proto_clear();
+        /* perf 计数同步清零（口径：清零时刻之后的开销才计入；本响应自身
+           的打印阻塞会计入新累计） */
+        perf_feed_n = perf_feed_cyc = perf_frame_cyc = perf_frame_max = 0;
+        uart_wait_cyc = 0;
         app_put_str("OK clear\n");
     } else if (streq(cmd_buf, "timeout")) {
         app_put_str("timeout=");
@@ -293,7 +299,7 @@ int main(void)
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）
 #else
     /* 连续运行形态（上板形态）：永不退出。轮询总线采集的同时轮询结果
-       UART 的下行命令（stat/clear/timeout/help），命令响应与诊断输出
+       UART 的下行命令（stat/clear/timeout/perf/help），命令响应与诊断输出
        共用同一 UART 上行通道，均为整行 ASCII */
     app_put_str("app-mon: Modbus RTU 总线监听（连续运行形态）\n");
     for (;;) {

@@ -11,6 +11,8 @@
 FRAME / STAT / PERF / OK / ERR / timeout=<n> / cmds: / RESULT。
 --fclk 用于把周期数换算成时间，须按 PDS 工程实际时钟设置（示例 50 MHz）。
 依赖 pyserial（仅实际开串口时需要）。
+Windows 要点：串口名用 --port COMx（如 COM3）；pyserial 用
+pip install pyserial 安装；统一自检入口为 selftest.py（纯 Python）。
 """
 import argparse
 import re
@@ -115,12 +117,13 @@ def selftest() -> None:
             print(f"  FAIL: {msg}")
 
     for gf in sorted(GOLDEN_DIR.glob("*.txt")):
-        counts = run_stream(gf.read_text().splitlines(), 50e6, quiet=True)
+        counts = run_stream(gf.read_text(encoding="utf-8").splitlines(),
+                            50e6, quiet=True)
         check("other" not in counts,
               f"{gf.name}: 有未识别行 {counts.get('other')}")
 
     # normal：一问一答，resp=1728，统计 frames=2，RESULT PASS
-    lines = (GOLDEN_DIR / "normal.txt").read_text().splitlines()
+    lines = (GOLDEN_DIR / "normal.txt").read_text(encoding="utf-8").splitlines()
     kinds = [parse_line(l)[0] for l in lines if l.strip()]
     check(kinds == ["banner", "req", "rsp", "stat", "result"],
           f"normal 行序列 {kinds}")
@@ -131,12 +134,12 @@ def selftest() -> None:
           and f.get("rsp") == "1", f"normal STAT={f}")
     # bad_crc：坏 CRC 帧 + 超时（不当成有效回复）
     kinds = [parse_line(l)[0]
-             for l in (GOLDEN_DIR / "bad_crc.txt").read_text().splitlines()
+             for l in (GOLDEN_DIR / "bad_crc.txt").read_text(encoding="utf-8").splitlines()
              if l.strip()]
     check(kinds == ["banner", "req", "frame", "timeout", "stat", "result"],
           f"bad_crc 行序列 {kinds}")
     # app（命令接口）：timeout 查设、OK/ERR、help
-    lines = (GOLDEN_DIR / "app.txt").read_text().splitlines()
+    lines = (GOLDEN_DIR / "app.txt").read_text(encoding="utf-8").splitlines()
     kinds = [parse_line(l)[0] for l in lines if l.strip()]
     check("cfg" in kinds and "ok" in kinds and "err" in kinds
           and "help" in kinds, f"app 行序列 {kinds}")
