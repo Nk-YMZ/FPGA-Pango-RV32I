@@ -210,13 +210,17 @@ int main(void)
 #ifdef DEMO_MODE
     app_put_str("app-demo: Modbus RTU 监听可行性 demo\n");
 
-    /* 仿真自检形态：时间窗收敛——最后总线活动后再空闲足够长（保证末帧
-       已由墙钟收尾、挂起请求已超时上报），且 proto 无未决，即认为场景
-       流量结束。收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5)。 */
+    /* 仿真自检形态：时间窗收敛——proto 无未决、FIFO 已追平、且最后总线
+       活动后再空闲足够长（保证末帧已由墙钟收尾、挂起请求已超时上报），
+       即认为场景流量结束。收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5)。
+       FIFO 追平判定不可省：打印阻塞期间字节继续入队，固件处理滞后时
+       NOW-last_act 超窗但 FIFO 里还躺着未读记录（压力实测检出提前收敛），
+       与「墙钟切帧只能在 FIFO 空时进行」是同一前提 */
     const uint32_t converge = bitdiv * 11u * 24u;
     for (;;) {
         poll_once();
         if (proto_stats()->frames >= 1 && !proto_pending()
+            && !(MON_STATUS & 0x1u)
             && (MON_NOW - last_act) > converge)
             break;
     }
