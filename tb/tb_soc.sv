@@ -33,12 +33,15 @@ module tb_soc;
   logic [31:0] gpio_in;
   wire  uart_txd;
   logic uart_rxd;
+  wire  mon_rxd;   // 监听输入：常规测试无监听流量，固定空闲电平
+
+  assign mon_rxd = 1'b1;
 
   soc_top #(.RAM_BYTES(MEM_BYTES)) dut (
     .clk(clk), .rst_n(rst_n),
     .halted(halted), .halt_code(halt_code), .dbg_mispredict(dbg_mispredict),
     .gpio_out(gpio_out), .gpio_in(gpio_in),
-    .uart_txd(uart_txd), .uart_rxd(uart_rxd)
+    .uart_txd(uart_txd), .uart_rxd(uart_rxd), .mon_rxd(mon_rxd)
   );
 
   always #5 clk = ~clk;

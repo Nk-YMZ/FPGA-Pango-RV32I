@@ -14,12 +14,13 @@ BUILD := build
 
 RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
             rtl/ras.sv rtl/csr_file.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv
-RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/mtimer.sv rtl/soc_top.sv
+RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/mtimer.sv \
+            rtl/uart_mon.sv rtl/soc_top.sv
 
 RISCV       := riscv64-elf-
 RISCV_FLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles
 
-UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer
+UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分

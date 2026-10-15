@@ -34,7 +34,14 @@
 - JAL 目标译码即确定，ID 级直接重定向（跳转惩罚 1 拍）
 - 返回地址栈（RAS，16 项）：ID 级预测返回跳转目标，EX 级验证，误预测精确撤销弹栈
 - 外设：UART（8N1，TX FIFO + RX，RX 有效电平中断）、GPIO（含输入电平中断 IE）、
-  周期计数器（benchmark 计时用）、mtimer（CLINT 风格 mtime/mtimecmp，定时器中断）
+  周期计数器（benchmark 计时用）、mtimer（CLINT 风格 mtime/mtimecmp，定时器中断）、
+  uart_mon 总线监听采集外设（0x1000_4000，rtl/uart_mon.sv，应用环节首个新增模块）：
+  只收 8N1 监听一路串行波形，每字节落一条 42 位记录（数据/帧错误标志/接收完成
+  时刻的 32 位时间戳）进 FIFO（默认 64 条，参数化），CPU 先读 TSTAMP（peek）
+  再读 DATA（读弹出）配成一条；FIFO 满丢新字节并累计 OVF_CNT + 锁存溢出位，
+  宁明确报溢出也不静默错位；BITDIV 可配位周期；FIFO 非空电平中断已接入 MEI
+  聚合但首版固件轮询不用（irq_en 预留）。监听输入为 soc_top 端口 mon_rxd，
+  仿真接内部发生器、上板约束到扩展引脚，产品 RTL 中无 demo 专用逻辑
 - 存储器：哈佛结构，指令/数据均为同步读 BRAM（Pango DRM 推断模板），
   CPU 与存储器类型解耦；指令口提前一拍送地址，取指无性能损失；
   数据口 load 地址经预取口提前一拍预采样，命中时 2 拍读缩为 1 拍，
@@ -112,7 +119,7 @@
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
 | 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释 | `make rtests` |
-| 自研测试 | 单元测试 9 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
+| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |

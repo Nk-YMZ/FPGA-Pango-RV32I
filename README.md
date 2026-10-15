@@ -6,7 +6,8 @@
 本仓库实现一个 **RV32IM_Zicsr 五级流水线 32 位 CPU**（SystemVerilog），带 2-bit 动态
 分支预测器、多周期乘除法单元、M 态异常/中断**最小子集**（仅机器模式：精确陷入、
 MTI/MSI/MEI、WFI；未实现项清单见 AGENTS.md「特权架构边界」）、
-UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，并完成仿真验证与官方合规测试。
+UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，以及应用环节的 uart_mon 总线监听
+采集外设（字节+时间戳 FIFO），并完成仿真验证与官方合规测试。
 RTL 核心已冻结，当前进入应用环节（配套外围电路 + C 应用固件）；不涉及上板适配。
 
 ## 验证状态
@@ -52,5 +53,5 @@ make lint    # Verilator -Wall lint
 - 特权架构为仅 M 态的最小异常/中断子集（仅覆盖当前项目需求，非完整实现），
   未实现项（S/U 态、PMP、调试、计数器 CSR、PLIC 等）与验证缺口清单见 AGENTS.md「特权架构边界」
 - 外设地址：GPIO `0x1000_0000`，UART `0x1000_1000`，周期计数器 `0x1000_2000`，
-  mtimer `0x1000_3000`，RAM `0x0` 起（FPGA 默认 64KiB，仿真可放大）
-- 中断：mtimer → MTI；UART RX 与 GPIO 输入 → MEI（电平聚合）；软件置 MSIP → MSI
+  mtimer `0x1000_3000`，uart_mon `0x1000_4000`，RAM `0x0` 起（FPGA 默认 64KiB，仿真可放大）
+- 中断：mtimer → MTI；UART RX、GPIO 输入与 uart_mon FIFO 非空 → MEI（电平聚合）；软件置 MSIP → MSI
