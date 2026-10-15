@@ -16,6 +16,7 @@
 #define GPIO_OUT    (*(volatile uint32_t *)0x10000000u)
 #define UART_DATA   (*(volatile uint32_t *)0x10001000u)
 #define UART_STATUS (*(volatile uint32_t *)0x10001004u)
+#define CCTR_LO     (*(volatile uint32_t *)0x10002000u)  /* 周期计数器低 32 位 */
 
 #define MON_CTRL    (*(volatile uint32_t *)0x10004000u)
 #define MON_STATUS  (*(volatile uint32_t *)0x10004004u)
@@ -25,9 +26,13 @@
 #define MON_BITDIV  (*(volatile uint32_t *)0x10004014u)
 #define MON_NOW     (*(volatile uint32_t *)0x10004018u)
 
+static uint32_t uart_wait_cyc;      /* UART 打印阻塞累计（clk），性能测量用 */
+
 static void uart_putc(char c)
 {
+    uint32_t c0 = CCTR_LO;
     while (UART_STATUS & 0x1u) ;    // 等待 TX FIFO 有空间
+    uart_wait_cyc += CCTR_LO - c0;
     UART_DATA = (uint32_t)c;
 }
 
@@ -81,18 +86,41 @@ static void check(int cond)
 /* 轮询取数：FIFO 弹读 → feed；仅当 FIFO 已空（已追平硬件队列）时才用
    墙钟 NOW 收尾末帧与查超时——否则队列里可能还躺着本帧的后续字节，
    按墙钟切帧会把帧错切（硬件时间戳的意义就是让解析不受 CPU 延迟影响）。
-   last_act 记录最后一次字节活动的总线时刻，供 demo 形态时间窗收敛用 */
+   last_act 记录最后一次字节活动的总线时刻，供 demo 形态时间窗收敛用。
+   性能口径：frames 计数变化的那次 feed/tick 调用即为「帧关闭处理」
+   （切帧 + CRC + 解析 + 报告打印），其耗时逐帧累计并记最大值 */
 static uint32_t last_act;
+static uint32_t perf_feed_n, perf_feed_cyc;     /* 逐字节采集开销 */
+static uint32_t perf_frame_cyc, perf_frame_max; /* 帧处理累计/最差（含打印） */
 
 static void poll_once(void)
 {
     if (MON_STATUS & 0x1u) {
         uint32_t ts = MON_TSTAMP;       /* 先戳后数，配成一条 */
         uint32_t d  = MON_DATA;
+        uint32_t c0 = CCTR_LO;
+        uint32_t f0 = proto_stats()->frames;
         last_act = ts;
         proto_feed(ts, (uint8_t)(d & 0xFFu), (uint8_t)((d >> 8) & 0x3u));
+        uint32_t dt = CCTR_LO - c0;
+        perf_feed_n++;
+        perf_feed_cyc += dt;
+        if (proto_stats()->frames != f0) {
+            perf_frame_cyc += dt;
+            if (dt > perf_frame_max) perf_frame_max = dt;
+        }
     } else {
+        /* tick 空转（每轮主循环都会调）不计入采集开销；仅帧关闭（墙钟
+           收尾）那次计时。TIMEOUT 上报也发生在 tick：频次低，其报告
+           打印不单独计（口径：帧处理统计仅含帧关闭调用） */
+        uint32_t f0 = proto_stats()->frames;
+        uint32_t c0 = CCTR_LO;
         proto_tick(MON_NOW);
+        if (proto_stats()->frames != f0) {
+            uint32_t dt = CCTR_LO - c0;
+            perf_frame_cyc += dt;
+            if (dt > perf_frame_max) perf_frame_max = dt;
+        }
     }
 }
 
@@ -120,6 +148,29 @@ static void print_stats(void)
     app_put_dec(s->resp_cycles);
     app_put_str(" ovf=");
     app_put_dec(MON_OVF);
+    app_put_str("\n");
+}
+
+/* 性能测量输出（PERF 行不进 golden 门禁：性能数字是评估而非正确性判定，
+   同 CoreMark bench 原则；diff 时由 Makefile 过滤）。口径：
+   bytes/feed_cyc = 逐字节采集次数与总耗时；frames/frame_cyc/frame_max =
+   帧关闭处理（切帧+CRC+解析+报告打印）的次数/总耗时/最差值；
+   uart_wait = 其中 UART 打印阻塞部分。诊断延迟 = 切帧等待（t3.5，设计
+   常数 gap_thresh）+ 帧处理耗时 */
+static void print_perf(void)
+{
+    app_put_str("PERF bytes=");
+    app_put_dec(perf_feed_n);
+    app_put_str(" feed_cyc=");
+    app_put_dec(perf_feed_cyc);
+    app_put_str(" frames=");
+    app_put_dec(proto_stats()->frames);
+    app_put_str(" frame_cyc=");
+    app_put_dec(perf_frame_cyc);
+    app_put_str(" frame_max=");
+    app_put_dec(perf_frame_max);
+    app_put_str(" uart_wait=");
+    app_put_dec(uart_wait_cyc);
     app_put_str("\n");
 }
 
@@ -177,7 +228,9 @@ static void cmd_exec(void)
             app_put_str("ERR bad-arg\n");
         }
     } else if (streq(cmd_buf, "help")) {
-        app_put_str("cmds: stat | clear | timeout [clk] | help\n");
+        app_put_str("cmds: stat | clear | timeout [clk] | perf | help\n");
+    } else if (streq(cmd_buf, "perf")) {
+        print_perf();
     } else {
         app_put_str("ERR unknown\n");
     }
@@ -235,6 +288,7 @@ int main(void)
     check(s->responses + s->exc_rsp == 0 || s->resp_cycles > 0);
 
     print_stats();
+    print_perf();
     finish(fails);
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）
 #else

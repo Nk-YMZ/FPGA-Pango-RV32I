@@ -75,6 +75,18 @@ def scenario_timeout() -> list:
     return [(OPEN_IDLE, REQ)]
 
 
+def scenario_stress(pairs: int, gap: int) -> list:
+    """压力测试：pairs 对请求+回复背靠背，帧间间隔统一 gap clk。
+    间隔必须 > 切帧阈值（3.5 字符 = 1232 clk）否则并帧；当间隔小于
+    固件帧处理周期（含报告打印）时 uart_mon FIFO 持续堆积，pairs
+    足够大则溢出——临界点由 OVF_CNT 说话（测量性质，不进 demo 门禁）。"""
+    seq = []
+    for i in range(pairs):
+        seq.append((OPEN_IDLE if i == 0 else gap, REQ))
+        seq.append((gap, RSP))
+    return seq
+
+
 SCENARIOS = {
     "normal": scenario_normal,
     "bad_crc": scenario_bad_crc,
@@ -87,12 +99,20 @@ SCENARIOS = {
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="生成 mbus_gen 监听脚本 hex 映像")
-    ap.add_argument("--scenario", default="normal", choices=sorted(SCENARIOS),
+    ap.add_argument("--scenario", default="normal",
+                    choices=sorted(SCENARIOS) + ["stress"],
                     help="场景名称（默认 normal）")
+    ap.add_argument("--pairs", type=int, default=30, help="stress：请求-回复对数")
+    ap.add_argument("--gap", type=int, default=2000, help="stress：帧间间隔（clk）")
     args = ap.parse_args()
 
+    if args.scenario == "stress":
+        flow = scenario_stress(args.pairs, args.gap)
+    else:
+        flow = SCENARIOS[args.scenario]()
+
     entries = []
-    for idle_before, data in SCENARIOS[args.scenario]():
+    for idle_before, data in flow:
         for i, b in enumerate(data):
             entries.append((idle_before if i == 0 else 0, b))
     entries.append((0xFFFFFFFF, 0))   # 结束标记

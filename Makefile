@@ -24,7 +24,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app stress
 
 test: unit smoke integ
 
@@ -138,8 +138,8 @@ demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script_$$sc.hex \
 	      +EXPECT=1 +MAGIC=0000900d +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
 	      > $(BUILD)/demo_log_$$sc.txt 2>&1 || { cat $(BUILD)/demo_log_$$sc.txt; exit 1; }; \
-	  diff -u scripts/demo/golden/$$sc.txt $(BUILD)/demo_out_$$sc.txt > /dev/null || \
-	      { diff -u scripts/demo/golden/$$sc.txt $(BUILD)/demo_out_$$sc.txt; \
+	  grep -v '^PERF' $(BUILD)/demo_out_$$sc.txt | diff -u scripts/demo/golden/$$sc.txt - > /dev/null || \
+	      { grep -v '^PERF' $(BUILD)/demo_out_$$sc.txt | diff -u scripts/demo/golden/$$sc.txt -; \
 	        echo "FAIL: 场景 $$sc 输出与 golden 不一致"; exit 1; }; \
 	done
 	@echo "===== 应用 demo 全部场景通过 ====="
@@ -153,8 +153,8 @@ demo-app: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_normal.hex $(BUILD
 	    +RXFILE=$(BUILD)/demo_cmd.rxf +TIMEOUT=600000 +TIMEOUTPASS \
 	    +UARTLOG=$(BUILD)/demo_app_out.txt > $(BUILD)/demo_app_log.txt 2>&1 || \
 	    { cat $(BUILD)/demo_app_log.txt; exit 1; }
-	@diff -u scripts/demo/golden/app.txt $(BUILD)/demo_app_out.txt > /dev/null || \
-	    { diff -u scripts/demo/golden/app.txt $(BUILD)/demo_app_out.txt; \
+	@grep -v '^PERF' $(BUILD)/demo_app_out.txt | diff -u scripts/demo/golden/app.txt - > /dev/null || \
+	    { grep -v '^PERF' $(BUILD)/demo_app_out.txt | diff -u scripts/demo/golden/app.txt -; \
 	      echo "FAIL: 命令接口输出与 golden 不一致"; exit 1; }
 	@echo "===== 命令接口测试通过 ====="
 
@@ -165,6 +165,25 @@ $(BUILD)/demo_cmd.rxf: scripts/demo/gen_cmd.py
 $(BUILD)/app_mon.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
 	@mkdir -p $(BUILD)
 	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
+
+# ---------------- 压力测试（性能测量，不作门禁） ----------------
+# 扫帧间隔梯子找 uart_mon FIFO 溢出临界点：间隔略大于切帧阈值但小于固件
+# 帧处理周期（含报告打印）时 FIFO 持续堆积。+TIMEOUTPASS 跳过停机码判定
+#（溢出场景固件自检必然报 FAIL，溢出本身正是要找的临界点），STAT/PERF
+# 行由本目标摘要输出，结果人工录入 design.md 入档
+STRESS_PAIRS ?= 30
+STRESS_GAPS  ?= 5000 4000 3000 2500 2000 1800 1600 1400 1300
+
+stress: $(SOC_TB) $(BUILD)/app_demo.hex
+	@set -e; for g in $(STRESS_GAPS); do \
+	  python3 scripts/demo/gen_script.py --scenario stress --pairs $(STRESS_PAIRS) --gap $$g \
+	      > $(BUILD)/stress_script.hex; \
+	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/stress_script.hex \
+	      +TIMEOUT=4000000 +TIMEOUTPASS +UARTLOG=$(BUILD)/stress_out.txt \
+	      > $(BUILD)/stress_log.txt 2>&1 || { cat $(BUILD)/stress_log.txt; exit 1; }; \
+	  echo "gap=$$g clk: $$(grep '^STAT' $(BUILD)/stress_out.txt)"; \
+	done
+	@grep '^PERF' $(BUILD)/stress_out.txt
 
 $(BUILD)/demo_script_%.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)

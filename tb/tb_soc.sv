@@ -42,7 +42,7 @@ module tb_soc;
   wire  mon_rxd;   // 监听输入：mbus_gen 驱动，无脚本时保持空闲电平
   wire  gen_done;
 
-  mbus_gen #(.BITDIV(32)) mbus_gen_i (
+  mbus_gen #(.BITDIV(32), .SCRIPT_MAX(4096)) mbus_gen_i (
     .clk(clk), .rst_n(rst_n), .txd(mon_rxd), .done(gen_done)
   );
 
