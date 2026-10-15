@@ -98,8 +98,7 @@ static void poll_once(void)
 
 static void print_stats(void)
 {
-    const proto_stats_t *s = proto_stats();
-    app_put_str("STAT frames=");
+    const proto_stats_t *s = proto_stats();    app_put_str("STAT frames=");
     app_put_dec(s->frames);
     app_put_str(" req=");
     app_put_dec(s->requests);
@@ -124,6 +123,77 @@ static void print_stats(void)
     app_put_str("\n");
 }
 
+/* ---- 命令接口（连续运行形态）：PC 经结果 UART 下行整行命令 ----
+ * nostdlib 环境无 string.h，字符串比较与十进制解析就地实现。
+ * 命令集：stat 查统计 / clear 清统计 / timeout 查阈值 / timeout <n> 设阈值
+ * （clk）/ help 列命令；未知命令报 ERR。响应均为整行 ASCII，便于 PC 脚本解析 */
+#define CMD_MAX 24
+static char     cmd_buf[CMD_MAX];
+static uint32_t cmd_len;
+
+static int streq(const char *a, const char *b)
+{
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
+static int parse_dec(const char *s, uint32_t *v)
+{
+    uint32_t r = 0;
+    if (*s < '0' || *s > '9') return 0;
+    while (*s >= '0' && *s <= '9') { r = r * 10 + (uint32_t)(*s - '0'); s++; }
+    if (*s != '\0') return 0;
+    *v = r;
+    return 1;
+}
+
+static int starts_with(const char *s, const char *pfx)
+{
+    while (*pfx) { if (*s++ != *pfx++) return 0; }
+    return 1;
+}
+
+static void cmd_exec(void)
+{
+    cmd_buf[cmd_len] = '\0';
+    if (streq(cmd_buf, "stat")) {
+        print_stats();
+    } else if (streq(cmd_buf, "clear")) {
+        proto_clear();
+        app_put_str("OK clear\n");
+    } else if (streq(cmd_buf, "timeout")) {
+        app_put_str("timeout=");
+        app_put_dec(proto_get_timeout());
+        app_put_str("\n");
+    } else if (starts_with(cmd_buf, "timeout ")) {
+        /* 前缀 "timeout " 后接十进制周期数 */
+        uint32_t v;
+        if (parse_dec(cmd_buf + 8, &v)) {
+            proto_set_timeout(v);
+            app_put_str("OK timeout=");
+            app_put_dec(v);
+            app_put_str("\n");
+        } else {
+            app_put_str("ERR bad-arg\n");
+        }
+    } else if (streq(cmd_buf, "help")) {
+        app_put_str("cmds: stat | clear | timeout [clk] | help\n");
+    } else {
+        app_put_str("ERR unknown\n");
+    }
+}
+
+static void cmd_feed(char c)
+{
+    if (c == '\r') return;
+    if (c == '\n') {
+        if (cmd_len) { cmd_exec(); cmd_len = 0; }
+        return;
+    }
+    if (cmd_len < CMD_MAX - 1) cmd_buf[cmd_len++] = c;
+    else { cmd_len = 0; app_put_str("ERR too-long\n"); }
+}
+
 int main(void)
 {
     /* 初始化采集外设：先 clear 清干净，再使能（irq_en 保持 0，轮询模式）。
@@ -137,9 +207,9 @@ int main(void)
     uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
     proto_init(gap, tout);
 
+#ifdef DEMO_MODE
     app_put_str("app-demo: Modbus RTU 监听可行性 demo\n");
 
-#ifdef DEMO_MODE
     /* 仿真自检形态：时间窗收敛——最后总线活动后再空闲足够长（保证末帧
        已由墙钟收尾、挂起请求已超时上报），且 proto 无未决，即认为场景
        流量结束。收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5)。 */
@@ -164,7 +234,14 @@ int main(void)
     finish(fails);
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）
 #else
-    /* 连续运行形态（上板雏形）：永不退出，命令接口后续迭代加入 */
-    for (;;) poll_once();
+    /* 连续运行形态（上板形态）：永不退出。轮询总线采集的同时轮询结果
+       UART 的下行命令（stat/clear/timeout/help），命令响应与诊断输出
+       共用同一 UART 上行通道，均为整行 ASCII */
+    app_put_str("app-mon: Modbus RTU 总线监听（连续运行形态）\n");
+    for (;;) {
+        poll_once();
+        if (UART_STATUS & 0x2u)                 /* rx_valid：收到下行字节 */
+            cmd_feed((char)(UART_DATA & 0xFFu));
+    }
 #endif
 }

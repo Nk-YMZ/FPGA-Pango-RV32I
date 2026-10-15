@@ -78,6 +78,41 @@ module tb_soc;
   int    uartlog_fd;
   logic        running;      // 复位释放后置 1（避免与异步复位混用告警）
 
+  // ---- UART RX 命令注入（应用连续运行形态测试）：+RXFILE=<hex 文件> ----
+  // 条目格式同 mbus_gen 脚本：40 位 {idle_clks[31:0], byte[7:0]}，发本字节
+  // 前先空闲 idle_clks 个 clk，0xFFFFFFFF 为结束标记。注入起点：有
+  // MONSCRIPT 时等 mbus_gen 发完脚本再留 20000 clk（末帧墙钟收尾 + 报告
+  // 打印完成），否则复位后 60000 clk（等固件初始化）。结束时核对发完。
+  localparam int RXF_MAX = 512;
+  logic [39:0] rxscript[RXF_MAX];
+  logic        rxfile_done;
+
+  initial begin : rxfile_engine
+    rxfile_done = 1'b0;
+    wait (rst_n);
+    if (rxfile == "") begin
+      wait (0);                         // 无命令脚本：永久挂起
+    end
+    if (monscript_file != "") begin
+      wait (gen_done);
+      repeat (20000) @(posedge clk);
+    end else begin
+      repeat (60000) @(posedge clk);
+    end
+    $readmemh(rxfile, rxscript);
+    $display("tb_soc: 加载命令注入脚本 %s", rxfile);
+    for (int i = 0; i < RXF_MAX; i++) begin
+      automatic logic [39:0] e = rxscript[i];
+      if (e[39:8] == 32'hFFFF_FFFF) break;
+      repeat (e[39:8]) @(posedge clk);
+      uart_rxd = 1'b0; #(BIT_NS);
+      for (int b = 0; b < 8; b++) begin uart_rxd = e[b]; #(BIT_NS); end
+      uart_rxd = 1'b1; #(BIT_NS);
+    end
+    $display("tb_soc: 命令注入脚本发送完毕");
+    rxfile_done = 1'b1;
+  end
+
   // ---- 中断注入引擎（层 B；plusarg 在主 initial 解析）----
   // +IRQPLAN 计划每行 "<周期> <类型> [字节hex]"（gen_plan.py 生成）：
   //   类型 0 = MTI：一次性沉积 poke mtimecmp = mtime+4。mtimecmp 平时仅在
@@ -97,6 +132,8 @@ module tb_soc;
   int    irq_cnt_addr;     // 非 0 = 中断模式（pango_irq_count 的 dmem 地址）
   int    irq_exp;
   string plan_file;
+  string monscript_file;
+  string rxfile;
 
   initial begin : irq_engine
     int fd, c, t, b, n;
@@ -171,16 +208,16 @@ module tb_soc;
   // ---- UART RX 激励：复位结束后发送 0xA5 ----
   // 注意：全局激励，对所有程序生效（test_isa 依赖它验证 RX 路径）；
   // 新增测试若在早期读 UART，需知晓会收到这一固定字节。
-  // 中断模式（+IRQCNT）下关闭：该字节收完后 rx_valid 长期置位，会成为
-  // 计划外 MEI 中断源，破坏注入计数核对；此模式下 RX 由注入计划驱动
+  // 中断模式（+IRQCNT）或命令注入模式（+RXFILE）下关闭：前者该字节收完
+  // 后 rx_valid 长期置位会成为计划外 MEI 中断源；后者会与命令流混在一起。
   initial begin : rx_driver
     logic [7:0] b;
     b = 8'hA5;
     uart_rxd = 1'b1;
     wait (rst_n);
     #5000;
-    if (irq_cnt_addr != 0) begin
-      wait (0);   // 中断模式：永久挂起本激励（进程不再唤醒）
+    if (irq_cnt_addr != 0 || rxfile != "") begin
+      wait (0);   // 永久挂起本激励（进程不再唤醒）
     end
     uart_rxd = 1'b0; #(BIT_NS);
     for (int i = 0; i < 8; i++) begin uart_rxd = b[i]; #(BIT_NS); end
@@ -192,9 +229,9 @@ module tb_soc;
     int    expect_code;
     int    magic;
     bit    magic_en;
+    bit    timeoutpass;
     int    timeout_cycles;
     int    errors;
-    string monscript_file;
     string uartlog_file;
 
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
@@ -234,6 +271,8 @@ module tb_soc;
     if (!$value$plusargs("IRQEXP=%d", irq_exp)) irq_exp = -1;
     if (!$value$plusargs("IRQPLAN=%s", plan_file)) plan_file = "";
     if (!$value$plusargs("MONSCRIPT=%s", monscript_file)) monscript_file = "";
+    if (!$value$plusargs("RXFILE=%s", rxfile)) rxfile = "";
+    timeoutpass = $test$plusargs("TIMEOUTPASS");
     if (irq_cnt_addr != 0 && irq_exp < 0)
       $fatal(1, "tb_soc: 中断模式需同时给出 +IRQEXP=<期望计数>");
     trace_fd = 0;
@@ -261,7 +300,10 @@ module tb_soc;
       wait (act_done);
       begin
         repeat (timeout_cycles) @(posedge clk);
-        $fatal(1, "tb_soc: 超时未停机");
+        if (timeoutpass)
+          $display("tb_soc: 到达 %0d 周期超时点，连续运行形态按正常结束处理", timeout_cycles);
+        else
+          $fatal(1, "tb_soc: 超时未停机");
       end
     join_any
 
@@ -289,7 +331,9 @@ module tb_soc;
         errors++;
         $display("ACT-FAIL: tohost=%h", act_tohost);
       end
-    end else begin
+    end else if (!timeoutpass) begin
+      // TIMEOUTPASS（连续运行形态）：无停机概念，跳过停机码/魔数判定，
+      // 正确性由 UARTLOG golden diff 与下方脚本发完核对保证
       if (halt_code != halt_code_t'(expect_code)) begin
         errors++;
         $display("FAIL: 停机原因码 %0d，期望 %0d", halt_code, expect_code);
@@ -318,6 +362,13 @@ module tb_soc;
     if (monscript_file != "" && !gen_done) begin
       errors++;
       $display("FAIL: 监听脚本未发送完毕（固件提前结束或激励被截断）");
+    end
+
+    // 命令注入脚本核对：同理，命令未发完则响应缺失，golden diff 之前的
+    // 运行已不可信
+    if (rxfile != "" && !rxfile_done) begin
+      errors++;
+      $display("FAIL: 命令注入脚本未发送完毕（超时预算不足或注入引擎异常）");
     end
 
     if (errors == 0) $display("tb_soc: PASS");

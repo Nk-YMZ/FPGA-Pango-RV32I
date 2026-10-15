@@ -1,0 +1,11 @@
+app-mon: Modbus RTU 总线监听（连续运行形态）
+REQ addr=01 start=0000 nreg=2
+RSP addr=01 data=0100,0258 resp=1728cyc
+STAT frames=2 req=1 rsp=1 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=1728 ovf=0
+timeout=5632
+OK timeout=7000
+timeout=7000
+OK clear
+STAT frames=0 req=0 rsp=0 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=0 ovf=0
+ERR unknown
+cmds: stat | clear | timeout [clk] | help

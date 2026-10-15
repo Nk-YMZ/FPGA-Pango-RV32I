@@ -24,7 +24,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app
 
 test: unit smoke integ
 
@@ -143,6 +143,28 @@ demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 	        echo "FAIL: 场景 $$sc 输出与 golden 不一致"; exit 1; }; \
 	done
 	@echo "===== 应用 demo 全部场景通过 ====="
+	@$(MAKE) --no-print-directory demo-app
+
+# 连续运行形态（上板形态）命令接口测试：app ELF 永不停机，normal 场景流量
+# 处理完后由 +RXFILE 注入命令流（stat/timeout 查设/clear/非法命令/help），
+# +TIMEOUTPASS 按超时点正常收尾，UART 输出与 golden diff 判定
+demo-app: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_normal.hex $(BUILD)/demo_cmd.rxf
+	$(SOC_TB) +HEX=$(BUILD)/app_mon.hex +MONSCRIPT=$(BUILD)/demo_script_normal.hex \
+	    +RXFILE=$(BUILD)/demo_cmd.rxf +TIMEOUT=600000 +TIMEOUTPASS \
+	    +UARTLOG=$(BUILD)/demo_app_out.txt > $(BUILD)/demo_app_log.txt 2>&1 || \
+	    { cat $(BUILD)/demo_app_log.txt; exit 1; }
+	@diff -u scripts/demo/golden/app.txt $(BUILD)/demo_app_out.txt > /dev/null || \
+	    { diff -u scripts/demo/golden/app.txt $(BUILD)/demo_app_out.txt; \
+	      echo "FAIL: 命令接口输出与 golden 不一致"; exit 1; }
+	@echo "===== 命令接口测试通过 ====="
+
+$(BUILD)/demo_cmd.rxf: scripts/demo/gen_cmd.py
+	@mkdir -p $(BUILD)
+	python3 $< > $@
+
+$(BUILD)/app_mon.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
+	@mkdir -p $(BUILD)
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
 
 $(BUILD)/demo_script_%.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)

@@ -39,6 +39,13 @@ void proto_tick(uint32_t now);
 /* 有未收尾的帧或待回复请求时非 0（demo 形态的时间窗收敛用） */
 int proto_pending(void);
 
+/* 清统计与解析状态（未收尾帧、待回复请求一并作废），保留阈值配置 */
+void proto_clear(void);
+
+/* 运行时查询/修改待回复超时阈值（clk）；配置命令接口用 */
+uint32_t proto_get_timeout(void);
+void     proto_set_timeout(uint32_t t);
+
 const proto_stats_t *proto_stats(void);
 
 #endif

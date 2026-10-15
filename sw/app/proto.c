@@ -168,6 +168,23 @@ int proto_pending(void)
     return flen != 0 || pend_valid;
 }
 
+void proto_clear(void)
+{
+    flen = 0;
+    pend_valid = 0;
+    st = (proto_stats_t){0};
+}
+
+uint32_t proto_get_timeout(void)
+{
+    return timeout_thresh;
+}
+
+void proto_set_timeout(uint32_t t)
+{
+    timeout_thresh = t;
+}
+
 const proto_stats_t *proto_stats(void)
 {
     return &st;
