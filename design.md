@@ -174,7 +174,8 @@ MEI 聚合（irq_en 预留，当前固件轮询未用）。
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听可行性闭环：仿真发生器 → uart_mon → 固件解析 → 自检停机报码 | `make demo` |
+| 应用 demo | 总线监听多场景闭环：仿真发生器 → uart_mon → 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（6 总线场景 + 命令接口场景） | `make demo` |
+| 应用压力测量 | stress 场景扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数，结果入 bench/results.csv | `make bench` |
 
 验证总规模：ACT 47/47、rv32mi 8/8、自研测试全绿、三层随机化各 100 个

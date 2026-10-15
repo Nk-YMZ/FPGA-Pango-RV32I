@@ -129,7 +129,10 @@
    --fclk 换算时间。
 
 USB 插拔后串口编号会变，使用明确的配置或稳定设备路径，**别把结果串口
-误当总线发送端**。
+误当总线发送端**。脚本跨平台：Linux 下串口为 /dev/ttyUSBx，Windows 下为
+COMx（--port 指定），pyserial 安装分别为 pacman / pip；统一自检入口
+`python3 scripts/pc/selftest.py`（纯标准库，跨平台），细节按联调侧实际
+环境确认。
 
 ### 3.6 验证步骤（按序进行）
 

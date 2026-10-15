@@ -73,7 +73,7 @@ CoreMark 基线：10 次迭代 3,547,147 仿真周期（RV32M 硬乘除；对照
    创建 Pygen Python 环境 `.venv`（uv 拉独立 Python 3.12，不动系统）→
    冒烟验证 `make test` + 单种子 `make rand`
 3. 完成后即可使用全部入口：`make test` / `make act` / `make rtests` / `make rand` /
-   `make randtrap` / `make randirq` / `make bench` / `make demo` / `make wave`
+   `make randtrap` / `make randirq` / `make bench` / `make demo` / `make stress` / `make wave`
 
 外部组件固定版本（更换版本须连同测试结果一起评估后再提交，setup.sh 按此清单拉取）：
 `external/` 下（gitignore）：riscv-arch-test commit af6485c（2026-10-11）、
@@ -202,12 +202,11 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 
 已完成：故障用例扩充（6 场景 + golden diff 判定链）、超时诊断（阈值可配，
 口径「未观察到有效回复」）、统计与配置命令（stat/clear/timeout/perf/help）、
-性能测量入档（design.md 7.1 节，含压力测试溢出临界点）。
+性能测量入档（design.md 7.1 节，含压力测试溢出临界点）、PC 端联调脚本
+（scripts/pc/ 三件套：控制器模拟/设备模拟/结果显示，无硬件自检通过，
+真实串口收发待阶段二联调）。
 
-1. **PC 端脚本**（显示/控制器模拟/设备模拟）：阶段二（电脑作信号源）
-   联调的必需品，信号源本身就是 PC 脚本；可先在仓库内开发并对 demo
-   输出做实解析自测
-2. ~~中断驱动升级~~：**暂缓**——实测表明轮询形态在目标速率下裕量约两个
+1. ~~中断驱动升级~~：**暂缓**——实测表明轮询形态在目标速率下裕量约两个
    数量级（design.md 7.1），等价重构无功能收益；如未来提高注入速率或
    加功能再立项（proto 层与 RTL 零改动即可平移）
 

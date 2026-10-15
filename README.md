@@ -25,7 +25,8 @@ tb/        Verilator 测试平台
 sw/        测试程序与应用固件（链接脚本、crt0、C/汇编；sw/app/ 为 Modbus 监听应用）
 bench/     CoreMark 移植层与成绩记录（results.csv）
 scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
-           随机测试层（scripts/rand/，riscv-dv Pygen 适配）
+           随机测试层（scripts/rand/，riscv-dv Pygen 适配）、
+           demo 场景生成与 golden（scripts/demo/）、PC 端联调脚本（scripts/pc/）
 external/  外部组件（riscv-arch-test、coremark、riscv-dv、sail；gitignore，脚本拉取）
 build/     生成产物（gitignore）
 ```
