@@ -13,6 +13,9 @@
 //   RX 激励（0xA5 字节会拉起 MEIP 干扰注入计数），结束时层级读取 handler
 //   陷入计数并与 +IRQEXP=<期望数> 核对（不等判 FAIL，防「中断根本没发生」
 //   的假通过）；+IRQPLAN=<计划文件> 按周期调度注入（见注入引擎注释）
+// - 总线监听激励（应用 demo）：+MONSCRIPT=<脚本.hex> 时 mbus_gen 按脚本向
+//   uart_mon 的监听输入 mon_rxd 发 8N1 波形（BITDIV=32 与 uart_mon 默认值
+//   一致）；结束时核对脚本是否发完。不给脚本则 mon_rxd 保持空闲电平
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -33,9 +36,12 @@ module tb_soc;
   logic [31:0] gpio_in;
   wire  uart_txd;
   logic uart_rxd;
-  wire  mon_rxd;   // 监听输入：常规测试无监听流量，固定空闲电平
+  wire  mon_rxd;   // 监听输入：mbus_gen 驱动，无脚本时保持空闲电平
+  wire  gen_done;
 
-  assign mon_rxd = 1'b1;
+  mbus_gen #(.BITDIV(32)) mbus_gen_i (
+    .clk(clk), .rst_n(rst_n), .txd(mon_rxd), .done(gen_done)
+  );
 
   soc_top #(.RAM_BYTES(MEM_BYTES)) dut (
     .clk(clk), .rst_n(rst_n),
@@ -183,6 +189,7 @@ module tb_soc;
     bit    magic_en;
     int    timeout_cycles;
     int    errors;
+    string monscript_file;
 
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
     mispredict_cnt = 0;
@@ -213,6 +220,7 @@ module tb_soc;
     if (!$value$plusargs("IRQCNT=%h", irq_cnt_addr)) irq_cnt_addr = 0;
     if (!$value$plusargs("IRQEXP=%d", irq_exp)) irq_exp = -1;
     if (!$value$plusargs("IRQPLAN=%s", plan_file)) plan_file = "";
+    if (!$value$plusargs("MONSCRIPT=%s", monscript_file)) monscript_file = "";
     if (irq_cnt_addr != 0 && irq_exp < 0)
       $fatal(1, "tb_soc: 中断模式需同时给出 +IRQEXP=<期望计数>");
     trace_fd = 0;
@@ -290,6 +298,13 @@ module tb_soc;
         $display("tb_soc: 中断计数核对 %0d == %0d",
                  dut.dmem_i.mem[irq_cnt_addr[MEM_AW+1:2]], irq_exp);
       end
+    end
+
+    // 监听脚本核对：给了脚本就必须发完，否则说明固件提前停机或超时前
+    // 激励未执行完，demo 结果不可信
+    if (monscript_file != "" && !gen_done) begin
+      errors++;
+      $display("FAIL: 监听脚本未发送完毕（固件提前结束或激励被截断）");
     end
 
     if (errors == 0) $display("tb_soc: PASS");

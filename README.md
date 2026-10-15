@@ -22,7 +22,7 @@ RTL 核心已冻结，当前进入应用环节（配套外围电路 + C 应用�
 ```
 rtl/       CPU 核心与外设 RTL（soc_top.sv 为顶层）
 tb/        Verilator 测试平台
-sw/        测试程序与应用固件（链接脚本、crt0、C/汇编）
+sw/        测试程序与应用固件（链接脚本、crt0、C/汇编；sw/app/ 为 Modbus 监听应用）
 bench/     CoreMark 移植层与成绩记录（results.csv）
 scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
            随机测试层（scripts/rand/，riscv-dv Pygen 适配）
@@ -40,6 +40,7 @@ make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make randtrap # 同步陷阱随机化（注入 ecall/非法指令/非对齐，Sail 裁决陷入现场）
 make randirq # 中断透明性随机化（中断注入，三轮签名一致 + 计数断言）
 make bench   # CoreMark 跑分（周期数，逐次可比）
+make demo    # 应用 demo：总线监听可行性闭环（mbus_gen 仿真发生器 → uart_mon → 固件解析）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint
 ```

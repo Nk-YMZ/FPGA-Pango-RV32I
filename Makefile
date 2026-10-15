@@ -24,7 +24,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests
+.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo
 
 test: unit smoke integ
 
@@ -84,9 +84,9 @@ integ: $(SOC_TB) $(HEXES)
 	@echo "===== 集成测试全部通过 ====="
 
 # tb_soc 需要 waive_soc.vlt：注入引擎层级 poke mtimecmp 的 MULTIDRIVEN 精确豁免
-$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv tb/waive_soc.vlt
+$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv tb/mbus_gen.sv tb/waive_soc.vlt
 	$(VERILATOR) $(VFLAGS) --trace-fst --Mdir $(BUILD)/obj_soc -o tb_soc \
-	    --top-module tb_soc tb/waive_soc.vlt $(RTL_SOC) tb/tb_soc.sv
+	    --top-module tb_soc tb/waive_soc.vlt $(RTL_SOC) tb/mbus_gen.sv tb/tb_soc.sv
 
 # C 测试程序：crt0 + main，O2 编译以覆盖更多指令形式
 $(BUILD)/test_isa.elf: sw/tests/test_isa.c sw/crt0.S sw/link.ld
@@ -121,6 +121,23 @@ bench: $(SOC_TB)
 	$(MAKE) -C $(CM_DIR) PORT_DIR=$(CM_PORT) OPATH=$(CM_OUT)/ ITERATIONS=$(CM_ITER) \
 	    REBUILD=1 link XLFLAGS="$(CM_OUT)/crt0.o -T $(abspath sw/link.ld)"
 	bash scripts/bench/run_bench.sh $(CM_ITER)
+
+# ---------------- 应用 demo（总线监听可行性闭环，全仿真） ----------------
+# 数据通路：mbus_gen（tb 侧仿真发生器，扮演总线上的控制器与设备）→ mon_rxd
+# → uart_mon（字节+时间戳 FIFO）→ 固件轮询解析（切帧/CRC/FC03/配对）→ UART
+# 输出 + 自检停机。发生器脚本由 gen_script.py 生成（CRC 独立计算，与固件
+# 实现交叉验证）；tb_soc 复用停机码 + GPIO 魔数判定链，并核对脚本发完。
+demo: $(SOC_TB) $(BUILD)/app_demo.hex $(BUILD)/demo_script.hex
+	$(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script.hex \
+	    +EXPECT=1 +MAGIC=0000900d
+
+$(BUILD)/demo_script.hex: scripts/demo/gen_script.py
+	@mkdir -p $(BUILD)
+	python3 $< > $@
+
+$(BUILD)/app_demo.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
+	@mkdir -p $(BUILD)
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
 
 # ---------------- riscv-dv 随机指令测试 ----------------
 # Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名
