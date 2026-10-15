@@ -143,6 +143,7 @@ try {
     $objDir=Join-Path $build 'obj_soc'
     $argsV=@('--cc','--main','--timing','-Wall','-Wno-DECLFILENAME',
         '-Wno-fatal','--timescale','1ns/1ps','--Mdir',$objDir,'--top-module','tb_soc')+$rtl+@($TbFile)
+    $argsV += (Join-Path $RtlDir 'uart_mon.sv')
     Invoke-Logged $Verilator $argsV $source 'verilator.log'
     $cpp=@(Get-ChildItem -LiteralPath $objDir -Filter '*.cpp' | Where-Object {
         $_.Name -notlike '*__ALL.cpp'
