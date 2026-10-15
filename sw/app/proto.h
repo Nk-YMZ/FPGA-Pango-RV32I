@@ -17,19 +17,27 @@ typedef struct {
     uint32_t unsupported;   /* CRC 正确但功能码未支持的帧数（不算设备故障） */
     uint32_t requests;      /* FC03 请求数 */
     uint32_t responses;     /* FC03 正常回复数 */
+    uint32_t exc_rsp;       /* 异常回复数（fc|0x80：设备在线但拒绝，算有效应答） */
+    uint32_t timeouts;      /* 请求超时数（阈值内未观察到有效回复） */
     uint32_t resp_cycles;   /* 最近一次响应时间（请求末字节→回复首字节，clk） */
 } proto_stats_t;
 
-/* gap_thresh：帧间空闲阈值（clk），调用者按 BITDIV 换算 t3.5 传入 */
-void proto_init(uint32_t gap_thresh);
+/* gap_thresh：帧间空闲阈值（clk），调用者按 BITDIV 换算 t3.5 传入；
+ * timeout_thresh：请求待回复超时阈值（clk），超时报「未观察到有效回复」。
+ * 分类不变式：frames == requests+responses+exc_rsp+crc_err+len_err+unsupported */
+void proto_init(uint32_t gap_thresh, uint32_t timeout_thresh);
 
 /* 喂入一条记录：ts 为接收完成时刻时间戳，flags bit0=frame_err */
 void proto_feed(uint32_t ts, uint8_t data, uint8_t flags);
 
-/* 无新字节时的帧收尾：now 与最后字节时间戳之差超阈值则关闭当前帧。
+/* 无新字节时的帧收尾与超时检查：now 与最后字节时间戳之差超阈值则关闭当前帧；
+ * 待回复请求超 timeout_thresh 未观察到有效回复则上报并解除挂起。
  * 注意：只能在「已追平硬件队列」（FIFO 已空）时调用——若 FIFO 里还有
  * 待消费记录，本帧后续字节可能就在队列里，墙钟收尾会把帧错切。 */
 void proto_tick(uint32_t now);
+
+/* 有未收尾的帧或待回复请求时非 0（demo 形态的时间窗收敛用） */
+int proto_pending(void);
 
 const proto_stats_t *proto_stats(void);
 

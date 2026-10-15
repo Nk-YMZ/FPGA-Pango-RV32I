@@ -12,6 +12,7 @@ static uint8_t  buf[MAX_FRAME];
 static uint32_t flen;
 static uint32_t first_ts, last_ts;      /* 当前帧首/末字节时间戳 */
 static uint32_t gap_thresh;
+static uint32_t timeout_thresh;         /* 待回复超时阈值（clk） */
 static proto_stats_t st;
 
 /* 待回复请求（demo 场景单控制器单请求，一个槽位即可） */
@@ -52,6 +53,30 @@ static void process_frame(void)
     }
     addr = buf[0];
     fc   = buf[1];
+    if (fc & 0x80u) {               /* 异常回复：addr fc|0x80 code crc（5 字节） */
+        if (flen != 5) {
+            st.len_err++;
+            app_put_str("FRAME len_err\n");
+            return;
+        }
+        st.exc_rsp++;
+        app_put_str("EXR addr=");
+        app_put_hex(addr, 2);
+        app_put_str(" fc=");
+        app_put_hex(fc & 0x7Fu, 2);
+        app_put_str(" code=");
+        app_put_hex(buf[2], 2);
+        if (pend_valid && pend_addr == addr && (fc & 0x7Fu) == 0x03u) {
+            /* 异常回复是设备的有效应答（在线但拒绝）：解除待回复并记响应时间 */
+            st.resp_cycles = f_first - pend_end_ts;
+            pend_valid = 0;
+            app_put_str(" resp=");
+            app_put_dec(st.resp_cycles);
+            app_put_str("cyc");
+        }
+        app_put_str("\n");
+        return;
+    }
     if (fc != 0x03) {               /* 校验正确但暂不支持的命令：保留现场，不误判故障 */
         st.unsupported++;
         app_put_str("FRAME unsupported fc=");
@@ -95,9 +120,10 @@ static void process_frame(void)
     }
 }
 
-void proto_init(uint32_t gap)
+void proto_init(uint32_t gap, uint32_t timeout)
 {
     gap_thresh = gap;
+    timeout_thresh = timeout;
     flen = 0;
     pend_valid = 0;
     st = (proto_stats_t){0};
@@ -122,6 +148,24 @@ void proto_tick(uint32_t now)
         process_frame();
         flen = 0;
     }
+    /* 待回复超时：口径为「阈值内未观察到有效回复」，只陈述观察结论，
+       不归因设备故障；wait 打印触发时刻的实际等待值（略大于阈值，
+       取决于 tick 调用节奏），超时不是解析延迟，本来就等于阈值量级 */
+    if (pend_valid && (now - pend_end_ts) > timeout_thresh) {
+        uint8_t pa = pend_addr;
+        pend_valid = 0;
+        st.timeouts++;
+        app_put_str("TIMEOUT addr=");
+        app_put_hex(pa, 2);
+        app_put_str(" wait=");
+        app_put_dec(now - pend_end_ts);
+        app_put_str("cyc no-response\n");
+    }
+}
+
+int proto_pending(void)
+{
+    return flen != 0 || pend_valid;
 }
 
 const proto_stats_t *proto_stats(void)

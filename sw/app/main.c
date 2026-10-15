@@ -81,7 +81,8 @@ int main(void)
     MON_CTRL = 0x1u;                /* en=1 */
     uint32_t bitdiv = MON_BITDIV;
     uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */
-    proto_init(gap);
+    uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
+    proto_init(gap, tout);
 
     app_put_str("app-demo: Modbus RTU 监听可行性 demo\n");
 
@@ -121,8 +122,22 @@ int main(void)
     app_put_dec(s->requests);
     app_put_str(" rsp=");
     app_put_dec(s->responses);
-    app_put_str(" resp_cycles=");
+    app_put_str(" exr=");
+    app_put_dec(s->exc_rsp);
+    app_put_str(" crc=");
+    app_put_dec(s->crc_err);
+    app_put_str(" len=");
+    app_put_dec(s->len_err);
+    app_put_str(" unsup=");
+    app_put_dec(s->unsupported);
+    app_put_str(" ferr=");
+    app_put_dec(s->frame_err);
+    app_put_str(" tout=");
+    app_put_dec(s->timeouts);
+    app_put_str(" resp=");
     app_put_dec(s->resp_cycles);
+    app_put_str(" ovf=");
+    app_put_dec(MON_OVF);
     app_put_str("\n");
 
     finish(fails);
