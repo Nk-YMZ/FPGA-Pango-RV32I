@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """生成 demo 监听脚本（mbus_gen 脚本 ROM 的 hex 映像，写 stdout）。
 
-场景：1 条 FC03 读保持寄存器请求 + 4 字符空闲 + 1 条正常回复。
-帧尾 CRC 由本脚本独立计算（crc16_modbus），与固件实现互为交叉验证。
+用法：gen_script.py [--scenario 名称]，默认 normal；场景清单见 SCENARIOS。
+帧尾 CRC 由本脚本独立计算（crc16_modbus），与固件实现互为交叉验证，
+并经 CRC 标准目录已知答案向量（"123456789" → 0x4B37）核对。
 每条目 40 位：{idle_clks[31:0], byte[7:0]}，idle=0xFFFFFFFF 为结束标记。
 
 BITDIV 必须与 tb_soc 中 mbus_gen 参数及 uart_mon 复位默认值一致。
+脚本 hex 是运行期加载（+MONSCRIPT），改场景不需要重新 verilate。
 """
+import argparse
 
 BITDIV = 32
 CHAR = 11 * BITDIV          # 一字符 = 起始位 + 8 数据位 + 停止位 = 11 位
+
+OPEN_IDLE = 50000           # 开场空闲：留足固件启动与采集使能时间
+RSP_DELAY = 4 * CHAR        # 设备回复延迟（> t3.5=3.5 字符切帧阈值）
 
 
 def crc16_modbus(data: bytes) -> int:
@@ -27,20 +33,68 @@ def frame(payload: bytes) -> bytes:
     return payload + bytes([c & 0xFF, c >> 8])
 
 
-def main() -> None:
-    entries = []
+# FC03 请求：addr=01，起始寄存器 0x0000，读 2 个保持寄存器
+REQ = frame(bytes([0x01, 0x03, 0x00, 0x00, 0x00, 0x02]))
+# 正常回复：addr=01，字节数 04，寄存器值 0x0100(256)、0x0258(600)
+RSP = frame(bytes([0x01, 0x03, 0x04, 0x01, 0x00, 0x02, 0x58]))
 
-    def send_frame(idle_before: int, data: bytes) -> None:
+
+def scenario_normal() -> list:
+    """正常一问一答（可行性基线；输出必须与初版 demo 逐字节一致）"""
+    return [(OPEN_IDLE, REQ), (RSP_DELAY, RSP)]
+
+
+def scenario_bad_crc() -> list:
+    """回复 CRC 故意损坏：应判校验错误、不算有效回复，随后超时"""
+    bad = bytearray(RSP)
+    bad[-1] ^= 0xFF
+    return [(OPEN_IDLE, REQ), (RSP_DELAY, bytes(bad))]
+
+
+def scenario_truncated() -> list:
+    """截断帧：回复只发 3 字节总线即静默 → 长度异常，随后超时"""
+    return [(OPEN_IDLE, REQ), (RSP_DELAY, RSP[:3])]
+
+
+def scenario_exception() -> list:
+    """协议异常回复：功能码 | 0x80 + 异常码 02（非法数据地址）。
+    异常回复是设备的有效应答（设备在线但拒绝），不应报超时。"""
+    exr = frame(bytes([0x01, 0x83, 0x02]))
+    return [(OPEN_IDLE, REQ), (RSP_DELAY, exr)]
+
+
+def scenario_unsupported_fc() -> list:
+    """未支持功能码（FC06 写单寄存器）：CRC 正确，不算设备故障，
+    也不应挂起待回复（只有 FC03 请求挂起）。"""
+    fc06 = frame(bytes([0x01, 0x06, 0x00, 0x00, 0x00, 0x03]))
+    return [(OPEN_IDLE, fc06)]
+
+
+def scenario_timeout() -> list:
+    """无回复：请求发出后总线静默 → 超时报告，不误报其他故障"""
+    return [(OPEN_IDLE, REQ)]
+
+
+SCENARIOS = {
+    "normal": scenario_normal,
+    "bad_crc": scenario_bad_crc,
+    "truncated": scenario_truncated,
+    "exception": scenario_exception,
+    "unsupported_fc": scenario_unsupported_fc,
+    "timeout": scenario_timeout,
+}
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="生成 mbus_gen 监听脚本 hex 映像")
+    ap.add_argument("--scenario", default="normal", choices=sorted(SCENARIOS),
+                    help="场景名称（默认 normal）")
+    args = ap.parse_args()
+
+    entries = []
+    for idle_before, data in SCENARIOS[args.scenario]():
         for i, b in enumerate(data):
             entries.append((idle_before if i == 0 else 0, b))
-
-    # FC03 请求：addr=01，起始寄存器 0x0000，读 2 个保持寄存器
-    req = frame(bytes([0x01, 0x03, 0x00, 0x00, 0x00, 0x02]))
-    # 正常回复：addr=01，字节数 04，寄存器值 0x0100(256)、0x0258(600)
-    rsp = frame(bytes([0x01, 0x03, 0x04, 0x01, 0x00, 0x02, 0x58]))
-
-    send_frame(50000, req)            # 开场空闲：留足固件启动与采集使能时间
-    send_frame(4 * CHAR, rsp)         # 帧间 4 字符空闲（> t3.5=3.5 字符）
     entries.append((0xFFFFFFFF, 0))   # 结束标记
 
     for idle, b in entries:
