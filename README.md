@@ -8,7 +8,8 @@
 MTI/MSI/MEI、WFI；未实现项清单见 AGENTS.md「特权架构边界」）、
 UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，以及应用环节的 uart_mon 总线监听
 采集外设（字节+时间戳 FIFO），并完成仿真验证与官方合规测试。
-RTL 核心已冻结，当前进入应用环节（配套外围电路 + C 应用固件）；不涉及上板适配。
+RTL 核心已冻结，应用环节的仓库内工作（配套外设 RTL + C 应用固件 + PC 联调
+脚本）已完成，准备上板联调；上板适配本身不在本仓库范围。
 
 ## 验证状态
 
@@ -27,7 +28,7 @@ bench/     CoreMark 移植层与成绩记录（results.csv）
 scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
            随机测试层（scripts/rand/，riscv-dv Pygen 适配）、
            demo 场景生成与 golden（scripts/demo/）、PC 端联调脚本（scripts/pc/）
-external/  外部组件（riscv-arch-test、coremark、riscv-dv、sail；gitignore，脚本拉取）
+external/  外部组件（riscv-arch-test、coremark、riscv-dv、sail、riscv-tests；gitignore，脚本拉取）
 build/     生成产物（gitignore）
 ```
 

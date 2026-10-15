@@ -94,7 +94,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（7 总线场景 + 命令接口场景；应用相关改动须通过，RTL 迭代也建议捎带） | `make demo` |
+| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（7 总线场景 + 命令接口场景；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
 | 应用压力测量 | stress 场景扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
 
@@ -113,8 +113,10 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
    每轮只做一个原子化改进（见下方「变更粒度」）
 2. **进行修改**：RTL/软件改动，遵守编码规范
 3. **正确性验证**：「测试体系」所列测试层必须全部跑通（当前为 `make test` /
-   `make act` / `make rtests` / `make rand` / `make randtrap` / `make randirq`，
-   各层内容见「测试体系」表；后续新增测试层自动纳入本门禁，不再逐一修订本条）。
+   `make act` / `make rtests` / `make rand` / `make randtrap` / `make randirq`
+   / `make demo`，各层内容见「测试体系」表；后续新增测试层自动纳入本门禁，
+   不再逐一修订本条）。demo 层原为「RTL 迭代建议捎带」，现已显式纳入强制
+   门禁：全量仅数秒且确定性强，应用判定链对 RTL 回归同样有效。
    任何失败先修复再继续，不得带病跑分。
    **随机层检出分歧时的强制复核顺序**：修复后必须先用出问题的原种子
    复核通过（`bash scripts/rand/replay.sh <种子>`；陷阱模式为
@@ -173,7 +175,8 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 
 - `rtl/` 可综合 RTL；`tb/` 测试平台（含仿真专用模块 mbus_gen）；`sw/` 测试软件与
   应用固件（C；`sw/app/` 为应用固件）；`bench/` CoreMark 移植层与
-  成绩记录；`scripts/` 工具与适配脚本（`act/`、`bench/`、`rand/`、`demo/`）；`external/` 外部组件
+  成绩记录；`scripts/` 工具与适配脚本（`act/`、`bench/`、`rand/`、`rtests/`、
+  `demo/`、`pc/`）；`external/` 外部组件
   （gitignore）；`build/` 全部生成产物（gitignore）；`.venv/` Python 环境（gitignore）
 - `design.md` 设计/验证技术文档（报告素材），架构与测试层变化时同步
 - 保留已有 `.git`、`.vscode` 和用户配置；每项变更验证后及时提交，提交说明用中文
@@ -200,8 +203,9 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 
 ### 应用环节后续计划（按优先级排序，逐项立项）
 
-已完成：故障用例扩充（6 场景 + golden diff 判定链）、超时诊断（阈值可配，
-口径「未观察到有效回复」）、统计与配置命令（stat/clear/timeout/perf/help）、
+已完成：故障用例扩充（7 场景 + golden diff 判定链）、超时诊断（阈值可配，
+口径「未观察到有效回复」）、统计与配置命令（stat/clear/timeout/bitdiv/
+perf/help）、
 性能测量入档（design.md 7.1 节，含压力测试溢出临界点）、PC 端联调脚本
 （scripts/pc/ 三件套：控制器模拟/设备模拟/结果显示，无硬件自检通过，
 真实串口收发待阶段二联调）。

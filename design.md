@@ -174,7 +174,7 @@ MEI 聚合（irq_en 预留，当前固件轮询未用）。
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：仿真发生器 → uart_mon → 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（6 总线场景 + 命令接口场景） | `make demo` |
+| 应用 demo | 总线监听多场景闭环：仿真发生器 → uart_mon → 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（7 总线场景 + 命令接口场景） | `make demo` |
 | 应用压力测量 | stress 场景扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数，结果入 bench/results.csv | `make bench` |
 
@@ -331,7 +331,7 @@ golden 经人工核对后入库）；tb 另核「脚本必须全部发完」防�
 编译宏 DEMO_MODE 分两种形态（同一套 proto 解析逻辑）：仿真自检形态
 （时间窗收敛 + 自检停机，make demo 用）与上板连续运行形态（永不退出，
 结果 UART 下行整行命令：stat 查统计 / clear 清统计 / timeout 查询或
-设置超时阈值 / perf 查性能计数 / help）。命令接口在仿真中经 tb_soc 的
+设置超时阈值 / bitdiv 查位周期配置 / perf 查性能计数 / help）。命令接口在仿真中经 tb_soc 的
 +RXFILE 注入设施完整验证（命令脚本与总线脚本格式一致，注入起点等
 mbus_gen 发完后开始，与场景时序解耦）。
 
@@ -391,7 +391,7 @@ CoreMark 官方 v1.01，指标为**仿真周期数**（确定性强，与宿主�
 
 - 采集服务开销：每字节弹读 + 喂入解析 ≈ 47 clk（797 clk / 17 字节）
 - 每帧处理 ≈ 5,336 clk/帧（含约 30 字符报告打印 ≈ 5,280 clk），
-  最差帧 6,159 clk；**纯解析计算只占几百 clk，瓶颈是报告打印**
+  最差帧 6,161 clk；**纯解析计算只占几百 clk，瓶颈是报告打印**
 - 诊断延迟构成：切帧等待 t3.5 = 1,232 clk（设计常数）+ 帧处理
 - 持续吞吐临界点（`make stress` 梯子，30 对请求-回复背靠背）：
   帧间间隔 ≥ 3,000 clk 无溢出（60/60 帧全部正确）；2,500 clk 起 OVF_CNT
