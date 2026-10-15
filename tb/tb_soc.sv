@@ -99,6 +99,14 @@ module tb_soc;
     end else begin
       repeat (60000) @(posedge clk);
     end
+    begin
+      // 先探测文件存在性：$readmemh 对缺失文件仅告警，会把全零条目
+      // 当有效注入（表现为 golden 不一致而非「文件没找到」，难定位）
+      int fd;
+      fd = $fopen(rxfile, "r");
+      if (fd == 0) $fatal(1, "tb_soc: 无法打开命令注入脚本 %s", rxfile);
+      $fclose(fd);
+    end
     $readmemh(rxfile, rxscript);
     $display("tb_soc: 加载命令注入脚本 %s", rxfile);
     for (int i = 0; i < RXF_MAX; i++) begin

@@ -25,12 +25,18 @@ module mbus_gen #(
 
   initial begin
     string path;
+    int    fd;
     txd  = 1'b1;
     done = 1'b0;
     wait (rst_n);
     if (!$value$plusargs("MONSCRIPT=%s", path)) begin
       wait (0);                         // 无脚本：永久空闲
     end
+    // 先探测文件存在性：$readmemh 对缺失文件仅告警，会把全零条目当
+    // 零间隔连发的 0x00 字节流，故障形态不直观
+    fd = $fopen(path, "r");
+    if (fd == 0) $fatal(1, "mbus_gen: 无法打开监听脚本 %s", path);
+    $fclose(fd);
     $readmemh(path, script);
     $display("mbus_gen: 加载监听脚本 %s", path);
     for (int i = 0; i < SCRIPT_MAX; i++) begin
