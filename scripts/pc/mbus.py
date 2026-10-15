@@ -34,7 +34,7 @@ def build_fc03_request(addr: int, start: int, count: int) -> bytes:
                           count >> 8, count & 0xFF]))
 
 
-def build_fc03_response(addr: int, values: tuple, byte_swap_crc: bool = False) -> bytes:
+def build_fc03_response(addr: int, values: tuple) -> bytes:
     """FC03 正常回复：addr fc bytecount data... crc"""
     payload = bytes([addr, 0x03, 2 * len(values)])
     for v in values:

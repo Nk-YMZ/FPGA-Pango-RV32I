@@ -22,7 +22,8 @@ import argparse
 import sys
 import time
 
-from mbus import REG_VALUES, build_fc03_response, selftest
+from mbus import (REG_VALUES, build_fc03_request, build_fc03_response,
+                  check_crc, selftest)
 
 
 def respond(mode: str, addr: int, delay_ms: float) -> bytes | None:
@@ -37,8 +38,15 @@ def respond(mode: str, addr: int, delay_ms: float) -> bytes | None:
     return rsp
 
 
+def should_respond(frame: bytes, addr: int) -> bool:
+    """真实从站口径：地址匹配且 CRC 正确才响应；CRC 错误的请求静默
+    （GLM 复查：不校验 CRC 会在链路损坏时造成对账分歧——分析仪判
+    crc_err，控制器却记录正常问答）"""
+    return len(frame) >= 4 and frame[0] == addr and check_crc(frame)
+
+
 def device_selftest() -> None:
-    """无硬件自检：mbus 帧构造 + 各模式响应帧核对"""
+    """无硬件自检：mbus 帧构造 + 各模式响应帧核对 + CRC 静默口径"""
     selftest()
     # 各模式帧构造核对（delay/no_reply 不构造帧，只改行为）
     assert respond("normal", 1, 0) == bytes([0x01, 0x03, 0x04, 0x01,
@@ -46,6 +54,11 @@ def device_selftest() -> None:
                                              0xFB, 0x55])
     assert respond("bad_crc", 1, 0)[-1] == 0x55 ^ 0xFF
     assert respond("no_reply", 1, 0) is None
+    # CRC 静默口径：好帧响应、坏 CRC 帧静默、地址不匹配忽略
+    good = build_fc03_request(1, 0, 2)
+    assert should_respond(good, 1)
+    assert not should_respond(good[:-1] + bytes([good[-1] ^ 0xFF]), 1)
+    assert not should_respond(good, 2)
     print("device_sim selftest: PASS")
 
 
@@ -88,7 +101,13 @@ def main() -> None:
             if buf and now - last_rx > frame_gap:
                 frame, buf = buf, b""
                 n += 1
-                if len(frame) >= 2 and frame[0] == args.addr:
+                if not (len(frame) >= 2 and frame[0] == args.addr):
+                    print(f"#{n} rx={frame.hex(' ')} | "
+                          f"地址不匹配（本机 {args.addr}），忽略")
+                elif not check_crc(frame):
+                    # 真实从站对 CRC 错误的请求静默（不回任何字节）
+                    print(f"#{n} rx={frame.hex(' ')} | CRC 错误，静默")
+                else:
                     rsp = respond(args.mode, args.addr, args.delay_ms)
                     if rsp is not None:
                         ser.write(rsp)
@@ -97,9 +116,6 @@ def main() -> None:
                               f"tx={rsp.hex(' ')}")
                     else:
                         print(f"#{n} rx={frame.hex(' ')} | (no reply)")
-                else:
-                    print(f"#{n} rx={frame.hex(' ')} | "
-                          f"地址不匹配（本机 {args.addr}），忽略")
     except KeyboardInterrupt:
         pass
 
