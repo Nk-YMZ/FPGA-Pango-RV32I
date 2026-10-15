@@ -10,6 +10,7 @@ void app_put_dec(uint32_t v);
 
 static uint8_t  buf[MAX_FRAME];
 static uint32_t flen;
+static int      overlong;               /* 当前帧已超长：余下字节只丢不计 */
 static uint32_t first_ts, last_ts;      /* 当前帧首/末字节时间戳 */
 static uint32_t gap_thresh;
 static uint32_t timeout_thresh;         /* 待回复超时阈值（clk） */
@@ -38,6 +39,13 @@ static void process_frame(void)
     uint8_t  addr, fc;
 
     st.frames++;
+    /* 超长按一帧计一次 len_err（不多字节累计），保持分类不变式
+       frames == req+rsp+exr+crc_err+len_err+unsupported 对任意输入成立 */
+    if (overlong) {
+        st.len_err++;
+        app_put_str("FRAME len_err\n");
+        return;
+    }
     if (flen < 4) {                 /* 最短合法帧：addr+fc+CRC = 4 字节 */
         st.len_err++;
         app_put_str("FRAME len_err\n");
@@ -125,6 +133,7 @@ void proto_init(uint32_t gap, uint32_t timeout)
     gap_thresh = gap;
     timeout_thresh = timeout;
     flen = 0;
+    overlong = 0;
     pend_valid = 0;
     st = (proto_stats_t){0};
 }
@@ -136,9 +145,9 @@ void proto_feed(uint32_t ts, uint8_t data, uint8_t flags)
         process_frame();
         flen = 0;
     }
-    if (flen == 0) first_ts = ts;
+    if (flen == 0) { first_ts = ts; overlong = 0; }   /* 新帧开始 */
     if (flen < MAX_FRAME) buf[flen++] = data;
-    else                  st.len_err++;
+    else                  overlong = 1;   /* 超长：余下字节丢弃，关闭时统一计 len_err */
     last_ts = ts;
 }
 
@@ -149,16 +158,21 @@ void proto_tick(uint32_t now)
         flen = 0;
     }
     /* 待回复超时：口径为「阈值内未观察到有效回复」，只陈述观察结论，
-       不归因设备故障；wait 打印触发时刻的实际等待值（略大于阈值，
-       取决于 tick 调用节奏），超时不是解析延迟，本来就等于阈值量级 */
-    if (pend_valid && (now - pend_end_ts) > timeout_thresh) {
+       不归因设备故障。报告打印阈值而非实际等待值：超时不是解析延迟，
+       本来就等于阈值（实际等待仅多几拍轮询抖动，无信息量且随实现漂移）。
+       判定须同时满足总线静默（now - last_ts > gap_thresh）：FIFO 空 ≠
+       线上无字节在传——回复帧传输期间（背靠背 352 clk/字节，远慢于固件
+       取数）FIFO 会暂时为空，没有静默条件会对传输中的回复误报超时
+       （压力测试实测检出）；last_ts 在帧关闭后仍保留，即最后字节活动时刻 */
+    if (pend_valid && (now - pend_end_ts) > timeout_thresh
+        && (now - last_ts) > gap_thresh) {
         uint8_t pa = pend_addr;
         pend_valid = 0;
         st.timeouts++;
         app_put_str("TIMEOUT addr=");
         app_put_hex(pa, 2);
-        app_put_str(" wait=");
-        app_put_dec(now - pend_end_ts);
+        app_put_str(" thresh=");
+        app_put_dec(timeout_thresh);
         app_put_str("cyc no-response\n");
     }
 }
@@ -171,6 +185,7 @@ int proto_pending(void)
 void proto_clear(void)
 {
     flen = 0;
+    overlong = 0;
     pend_valid = 0;
     st = (proto_stats_t){0};
 }

@@ -1,6 +1,6 @@
 app-demo: Modbus RTU 监听可行性 demo
 REQ addr=01 start=0000 nreg=2
 FRAME len_err
-TIMEOUT addr=01 wait=5955cyc no-response
+TIMEOUT addr=01 thresh=5632cyc no-response
 STAT frames=2 req=1 rsp=0 exr=0 crc=0 len=1 unsup=0 ferr=0 tout=1 resp=0 ovf=0
 RESULT: PASS
