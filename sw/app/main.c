@@ -233,8 +233,15 @@ static void cmd_exec(void)
         } else {
             app_put_str("ERR bad-arg\n");
         }
+    } else if (streq(cmd_buf, "bitdiv")) {
+        /* 查 uart_mon 位周期配置：上板时 BITDIV 由综合参数 DEFAULT_DIV 决定，
+           误配（与总线波特率不符）的症状是全线 len_err + 超时乱报且不崩，
+           本查询使配置可被外部发现/核对（deploy.md 3.4） */
+        app_put_str("bitdiv=");
+        app_put_dec(MON_BITDIV);
+        app_put_str("\n");
     } else if (streq(cmd_buf, "help")) {
-        app_put_str("cmds: stat | clear | timeout [clk] | perf | help\n");
+        app_put_str("cmds: stat | clear | timeout [clk] | bitdiv | perf | help\n");
     } else if (streq(cmd_buf, "perf")) {
         print_perf();
     } else {

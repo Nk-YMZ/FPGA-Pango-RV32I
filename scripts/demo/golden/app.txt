@@ -7,5 +7,6 @@ OK timeout=7000
 timeout=7000
 OK clear
 STAT frames=0 req=0 rsp=0 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=0 ovf=0
+bitdiv=32
 ERR unknown
-cmds: stat | clear | timeout [clk] | perf | help
+cmds: stat | clear | timeout [clk] | bitdiv | perf | help

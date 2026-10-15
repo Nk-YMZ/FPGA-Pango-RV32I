@@ -20,6 +20,7 @@ COMMANDS = [
     "timeout",        # 再查：应为 7000（确认运行时配置生效）
     "clear",          # 清统计
     "stat",           # 应全 0（确认清统计生效）
+    "bitdiv",         # 查位周期配置：仿真默认 32（上板时核对此值防误配）
     "perf",           # 性能计数（PERF 行，数值不进 golden）
     "foo",            # 未知命令 → ERR unknown
     "help",           # 命令清单
