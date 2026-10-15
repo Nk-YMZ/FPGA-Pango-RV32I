@@ -1,0 +1,5 @@
+app-demo: Modbus RTU 监听可行性 demo
+REQ addr=01 start=0000 nreg=2
+EXR addr=01 fc=03 code=02 resp=1728cyc
+STAT frames=2 req=1 rsp=0 exr=1 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=1728 ovf=0
+RESULT: PASS

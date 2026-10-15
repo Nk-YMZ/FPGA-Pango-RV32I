@@ -124,20 +124,33 @@ bench: $(SOC_TB)
 
 # ---------------- 应用 demo（总线监听可行性闭环，全仿真） ----------------
 # 数据通路：mbus_gen（tb 侧仿真发生器，扮演总线上的控制器与设备）→ mon_rxd
-# → uart_mon（字节+时间戳 FIFO）→ 固件轮询解析（切帧/CRC/FC03/配对）→ UART
-# 输出 + 自检停机。发生器脚本由 gen_script.py 生成（CRC 独立计算，与固件
-# 实现交叉验证）；tb_soc 复用停机码 + GPIO 魔数判定链，并核对脚本发完。
-demo: $(SOC_TB) $(BUILD)/app_demo.hex $(BUILD)/demo_script.hex
-	$(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script.hex \
-	    +EXPECT=1 +MAGIC=0000900d
+# → uart_mon（字节+时间戳 FIFO）→ 固件轮询解析（切帧/CRC/FC03/配对/超时）
+# → UART 输出。发生器脚本由 gen_script.py 按场景生成（CRC 独立计算，与固件
+# 实现交叉验证）。判定链双重：固件自检与场景无关的不变式后停机报码（tb 核
+# 停机码 + GPIO 魔数 + 脚本发完），同时 UART 输出经 +UARTLOG 落盘后与
+# scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
+DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout
+DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCENARIOS)))
 
-$(BUILD)/demo_script.hex: scripts/demo/gen_script.py
+demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
+	@set -e; for sc in $(DEMO_SCENARIOS); do \
+	  echo "----- demo 场景 $$sc -----"; \
+	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script_$$sc.hex \
+	      +EXPECT=1 +MAGIC=0000900d +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
+	      > $(BUILD)/demo_log_$$sc.txt 2>&1 || { cat $(BUILD)/demo_log_$$sc.txt; exit 1; }; \
+	  diff -u scripts/demo/golden/$$sc.txt $(BUILD)/demo_out_$$sc.txt > /dev/null || \
+	      { diff -u scripts/demo/golden/$$sc.txt $(BUILD)/demo_out_$$sc.txt; \
+	        echo "FAIL: 场景 $$sc 输出与 golden 不一致"; exit 1; }; \
+	done
+	@echo "===== 应用 demo 全部场景通过 ====="
+
+$(BUILD)/demo_script_%.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)
-	python3 $< > $@
+	python3 $< --scenario $* > $@
 
 $(BUILD)/app_demo.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
 	@mkdir -p $(BUILD)
-	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
 
 # ---------------- riscv-dv 随机指令测试 ----------------
 # Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名

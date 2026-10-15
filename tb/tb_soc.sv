@@ -16,6 +16,9 @@
 // - 总线监听激励（应用 demo）：+MONSCRIPT=<脚本.hex> 时 mbus_gen 按脚本向
 //   uart_mon 的监听输入 mon_rxd 发 8N1 波形（BITDIV=32 与 uart_mon 默认值
 //   一致）；结束时核对脚本是否发完。不给脚本则 mon_rxd 保持空闲电平
+// - UART 日志落盘（应用 demo 判定链）：+UARTLOG=<路径> 时 UART TX 监视器
+//   解码的字节除打印到 stdout 外同时写入该文件，供 Makefile 与逐场景
+//   golden 文件 diff（固件输出在仿真中逐拍确定，可直接文本比对）
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -72,6 +75,7 @@ module tb_soc;
   string sig_file;
   string trace_file;
   int    trace_fd;
+  int    uartlog_fd;
   logic        running;      // 复位释放后置 1（避免与异步复位混用告警）
 
   // ---- 中断注入引擎（层 B；plusarg 在主 initial 解析）----
@@ -154,6 +158,7 @@ module tb_soc;
       for (int i = 0; i < 8; i++) begin #(BIT_NS) ch[i] = uart_txd; end
       #(BIT_NS);
       $write("%c", ch);   // 连续文本输出，便于脚本解析
+      if (uartlog_fd != 0) $fwrite(uartlog_fd, "%c", ch);
     end
   end
 
@@ -190,6 +195,7 @@ module tb_soc;
     int    timeout_cycles;
     int    errors;
     string monscript_file;
+    string uartlog_file;
 
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
     mispredict_cnt = 0;
@@ -215,6 +221,13 @@ module tb_soc;
     $value$plusargs("SIGEND=%h", sig_end);
     if (!$value$plusargs("SIGFILE=%s", sig_file)) sig_file = "";
     if (!$value$plusargs("TRACELOG=%s", trace_file)) trace_file = "";
+    // UART 日志落盘（应用 demo 判定链用）
+    if (!$value$plusargs("UARTLOG=%s", uartlog_file)) uartlog_file = "";
+    uartlog_fd = 0;
+    if (uartlog_file != "") begin
+      uartlog_fd = $fopen(uartlog_file, "w");
+      if (uartlog_fd == 0) $fatal(1, "tb_soc: 无法打开 UART 日志文件 %s", uartlog_file);
+    end
     // 中断模式（层 B）：+IRQCNT 给 handler 陷入计数器地址（非 0 启用），
     // +IRQEXP 给期望计数（含前导 MSI 一次），+IRQPLAN 给注入计划文件
     if (!$value$plusargs("IRQCNT=%h", irq_cnt_addr)) irq_cnt_addr = 0;

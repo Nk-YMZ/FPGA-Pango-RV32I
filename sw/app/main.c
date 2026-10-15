@@ -1,11 +1,15 @@
-/* 应用 demo 固件：Modbus RTU 总线监听可行性验证（全仿真闭环）。
+/* 应用固件：Modbus RTU 总线监听分析（编译宏 DEMO_MODE 分两种形态）。
  *
- * 数据通路：mbus_gen（tb 侧仿真发生器）→ mon_rxd → uart_mon（字节+时间戳
- * FIFO）→ 本固件轮询弹读 → proto 解析核心（切帧/CRC/FC03/配对）→ UART 输出。
- * 取数（本文件的 MMIO 轮询）与处理（proto.c）严格分离，后续可平移为中断驱动。
+ * 数据通路：mbus_gen（tb 侧仿真发生器）/ 真实总线 → mon_rxd → uart_mon
+ * （字节+时间戳 FIFO）→ 本固件轮询弹读 → proto 解析核心（切帧/CRC/FC03/
+ * 配对/超时诊断）→ UART 输出。取数（本文件的 MMIO 轮询）与处理（proto.c）
+ * 严格分离，后续可平移为中断驱动。
  *
- * demo 场景由 scripts/demo/gen_script.py 生成：1 条 FC03 请求 + 1 条正常回复；
- * 固件自检统计与预期一致后经 finish() 停机报码（GPIO 魔数 + ecall/ebreak）。 */
+ * DEMO_MODE（仿真自检形态，make demo 用）：时间窗收敛后自检与场景无关的
+ * 不变式，经 finish() 停机报码；场景级期望由 Makefile 将 UART 输出与
+ * scripts/demo/golden/ 逐场景 diff 判定（仿真输出逐拍确定）。
+ * 非 DEMO_MODE（上板连续运行形态）：永不退出，命令接口由后续迭代加入。
+ * 场景脚本由 scripts/demo/gen_script.py 生成（CRC 独立计算，交叉验证）。 */
 #include <stdint.h>
 #include "proto.h"
 
@@ -56,12 +60,15 @@ void finish(int fail_cnt)
     if (fail_cnt == 0) {
         GPIO_OUT = 0x0000900Du;
         app_put_str("RESULT: PASS\n");
-        __asm__ volatile("ecall");
     } else {
         GPIO_OUT = 0x0000BAD0u;
         app_put_str("RESULT: FAIL\n");
-        __asm__ volatile("ebreak");
     }
+    /* UART TX 是 4 字节 FIFO：写入返回 ≠ 串行发完。停机前留足排空时间
+       （一字符 11 位 × DIV=16 = 176 clk，余量取大），否则末尾字节被截断 */
+    for (volatile uint32_t i = 0; i < 20000; i++) ;
+    if (fail_cnt == 0) __asm__ volatile("ecall");
+    else               __asm__ volatile("ebreak");
     for (;;) ;
 }
 
@@ -71,51 +78,27 @@ static void check(int cond)
     if (!cond) fails++;
 }
 
-int main(void)
+/* 轮询取数：FIFO 弹读 → feed；仅当 FIFO 已空（已追平硬件队列）时才用
+   墙钟 NOW 收尾末帧与查超时——否则队列里可能还躺着本帧的后续字节，
+   按墙钟切帧会把帧错切（硬件时间戳的意义就是让解析不受 CPU 延迟影响）。
+   last_act 记录最后一次字节活动的总线时刻，供 demo 形态时间窗收敛用 */
+static uint32_t last_act;
+
+static void poll_once(void)
 {
-    /* 初始化采集外设：先 clear 清干净，再使能（irq_en 保持 0，轮询模式）。
-       BITDIV 用复位默认 32，与 tb 侧 mbus_gen 一致；切帧阈值按 t3.5 换算。
-       采集使能必须先于一切打印：监听就绪前总线上的流量应当错过即错过，
-       不能让慢速的横幅输出挡住采集窗口 */
-    MON_CTRL = 0x4u;                /* clear 脉冲（en=0） */
-    MON_CTRL = 0x1u;                /* en=1 */
-    uint32_t bitdiv = MON_BITDIV;
-    uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */
-    uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
-    proto_init(gap, tout);
-
-    app_put_str("app-demo: Modbus RTU 监听可行性 demo\n");
-
-    /* 轮询主循环：FIFO 弹读 → feed；仅当 FIFO 已空（已追平硬件队列）时
-       才用墙钟 NOW 收尾末帧——否则队列里可能还躺着本帧的后续字节，
-       按墙钟切帧会把帧错切（硬件时间戳的意义就是让解析不受 CPU 延迟影响） */
-    const proto_stats_t *s;
-    for (;;) {
-        if (MON_STATUS & 0x1u) {
-            uint32_t ts = MON_TSTAMP;       /* 先戳后数，配成一条 */
-            uint32_t d  = MON_DATA;
-            proto_feed(ts, (uint8_t)(d & 0xFFu), (uint8_t)((d >> 8) & 0x3u));
-        } else {
-            proto_tick(MON_NOW);
-        }
-        s = proto_stats();
-        if (s->responses >= 1) break;
-        if (s->frames > 4) { fails++; break; }
+    if (MON_STATUS & 0x1u) {
+        uint32_t ts = MON_TSTAMP;       /* 先戳后数，配成一条 */
+        uint32_t d  = MON_DATA;
+        last_act = ts;
+        proto_feed(ts, (uint8_t)(d & 0xFFu), (uint8_t)((d >> 8) & 0x3u));
+    } else {
+        proto_tick(MON_NOW);
     }
+}
 
-    /* 自检：统计须与 gen_script.py 场景严格一致 */
-    s = proto_stats();
-    check(s->frames == 2);
-    check(s->requests == 1);
-    check(s->responses == 1);
-    check(s->crc_err == 0);
-    check(s->frame_err == 0);
-    check(s->len_err == 0);
-    check(s->unsupported == 0);
-    check(MON_OVF == 0);
-    /* 响应时间标称值约 1728 clk（4 字符空闲 + 传输量化），范围校验 */
-    check(s->resp_cycles > 1500 && s->resp_cycles < 2000);
-
+static void print_stats(void)
+{
+    const proto_stats_t *s = proto_stats();
     app_put_str("STAT frames=");
     app_put_dec(s->frames);
     app_put_str(" req=");
@@ -139,7 +122,49 @@ int main(void)
     app_put_str(" ovf=");
     app_put_dec(MON_OVF);
     app_put_str("\n");
+}
 
+int main(void)
+{
+    /* 初始化采集外设：先 clear 清干净，再使能（irq_en 保持 0，轮询模式）。
+       BITDIV 用复位默认 32，与 tb 侧 mbus_gen 一致；切帧阈值按 t3.5 换算。
+       采集使能必须先于一切打印：监听就绪前总线上的流量应当错过即错过，
+       不能让慢速的横幅输出挡住采集窗口 */
+    MON_CTRL = 0x4u;                /* clear 脉冲（en=0） */
+    MON_CTRL = 0x1u;                /* en=1 */
+    uint32_t bitdiv = MON_BITDIV;
+    uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */
+    uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
+    proto_init(gap, tout);
+
+    app_put_str("app-demo: Modbus RTU 监听可行性 demo\n");
+
+#ifdef DEMO_MODE
+    /* 仿真自检形态：时间窗收敛——最后总线活动后再空闲足够长（保证末帧
+       已由墙钟收尾、挂起请求已超时上报），且 proto 无未决，即认为场景
+       流量结束。收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5)。 */
+    const uint32_t converge = bitdiv * 11u * 24u;
+    for (;;) {
+        poll_once();
+        if (proto_stats()->frames >= 1 && !proto_pending()
+            && (MON_NOW - last_act) > converge)
+            break;
+    }
+
+    /* 自检：只断言与场景无关的不变式；场景级期望由 Makefile 将 UART
+       输出与逐场景 golden 文件 diff 判定（输出在仿真中逐拍确定） */
+    const proto_stats_t *s = proto_stats();
+    check(s->frames == s->requests + s->responses + s->exc_rsp
+                     + s->crc_err + s->len_err + s->unsupported);
+    check(s->frame_err == 0);       /* 发生器激励无帧错误 */
+    check(MON_OVF == 0);            /* 功能场景速率远低于溢出临界点 */
+    check(s->responses + s->exc_rsp == 0 || s->resp_cycles > 0);
+
+    print_stats();
     finish(fails);
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）
+#else
+    /* 连续运行形态（上板雏形）：永不退出，命令接口后续迭代加入 */
+    for (;;) poll_once();
+#endif
 }
