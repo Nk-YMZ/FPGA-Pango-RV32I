@@ -21,6 +21,12 @@ static int      pend_valid;
 static uint8_t  pend_addr;
 static uint32_t pend_end_ts;
 
+/* 已配对响应计数（正常回复与异常回复共享）：仅供调用方做「有配对响应
+   ⇒ resp_cycles 有效」类不变式自检；不进 STAT 行——监听器中途接入时
+   首帧可以是孤儿回复，responses/exc_rsp 计数含孤儿，不能用它们推断
+   resp_cycles 是否应非零 */
+static uint32_t paired_rsp;
+
 /* 设备画像表（入账规则见 proto.h） */
 static proto_dev_t devs[PROTO_MAX_DEV];
 static uint32_t    ndev, dev_ovf;
@@ -147,7 +153,9 @@ static void process_frame(void)
             return;
         }
         st.exc_rsp++;
-        proto_dev_t *d = dev_lookup(addr, 1);
+        /* 广播地址（addr=0）不建账：真实 Modbus 广播无回复，addr=0 的
+           回复只可能是伪造/损坏流量，占画像槽位会挤掉真实设备 */
+        proto_dev_t *d = addr ? dev_lookup(addr, 1) : 0;
         int rec = 0;
         if (d) {
             d->exc_rsp++;
@@ -163,6 +171,7 @@ static void process_frame(void)
             /* 异常回复是设备的有效应答（在线但拒绝）：解除待回复并记响应时间 */
             st.resp_cycles = f_first - pend_end_ts;
             pend_valid = 0;
+            paired_rsp++;
             rq_answered = 1;        /* 有效应答：重试链复位 */
             if (d) dev_resp_update(d, st.resp_cycles);
             app_put_str(" resp=");
@@ -247,7 +256,7 @@ static void process_frame(void)
     } else if (flen >= 5 && flen == 5u + buf[2]) {  /* FC03 正常回复 */
         uint32_t i;
         st.responses++;
-        proto_dev_t *d = dev_lookup(addr, 1);
+        proto_dev_t *d = addr ? dev_lookup(addr, 1) : 0;   /* addr=0 不建账，同上 */
         int rec = 0;
         if (d) {
             d->responses++;
@@ -263,6 +272,7 @@ static void process_frame(void)
         if (pend_valid && pend_addr == addr) {      /* 与待回复请求配对 */
             st.resp_cycles = f_first - pend_end_ts;
             pend_valid = 0;
+            paired_rsp++;
             rq_answered = 1;        /* 有效应答：重试链复位 */
             if (d) dev_resp_update(d, st.resp_cycles);
             app_put_str(" resp=");
@@ -290,6 +300,7 @@ void proto_init(uint32_t gap, uint32_t timeout)
     flen = 0;
     overlong = 0;
     pend_valid = 0;
+    paired_rsp = 0;
     ndev = 0;
     dev_ovf = 0;
     crc_burst = 0;
@@ -344,6 +355,7 @@ void proto_clear(void)
     flen = 0;
     overlong = 0;
     pend_valid = 0;
+    paired_rsp = 0;
     ndev = 0;
     dev_ovf = 0;
     crc_burst = 0;
@@ -367,6 +379,11 @@ void proto_set_timeout(uint32_t t)
 const proto_stats_t *proto_stats(void)
 {
     return &st;
+}
+
+uint32_t proto_paired_rsp(void)
+{
+    return paired_rsp;
 }
 
 uint32_t proto_dev_count(void)

@@ -78,9 +78,13 @@ def scenario_timeout() -> list:
 
 def scenario_broadcast() -> list:
     """广播请求（addr=0）：Modbus 广播不期待回复，应如实打印 REQ 但不
-    挂起待回复、不报超时（FC03 广播本身非法，属防御性口径验证）"""
+    挂起待回复、不报超时（FC03 广播本身非法，属防御性口径验证）。
+    追加一条伪造的 addr=0 合法回复（真实总线上不可能出现）：全局统计
+    如实计数，但画像不建账（DEVS 不得出现 addr=00），锁定「广播地址
+    不建账」口径在回复分支同样成立。"""
     breq = frame(bytes([0x00, 0x03, 0x00, 0x00, 0x00, 0x02]))
-    return [(OPEN_IDLE, breq)]
+    brsp = frame(bytes([0x00, 0x03, 0x04, 0x01, 0x00, 0x02, 0x58]))
+    return [(OPEN_IDLE, breq), (RSP_DELAY, brsp)]
 
 
 def scenario_stress(pairs: int, gap: int) -> list:

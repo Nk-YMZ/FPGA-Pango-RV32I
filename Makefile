@@ -150,10 +150,14 @@ demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 
 # 连续运行形态（上板形态）命令接口测试：app ELF 永不停机，normal 场景流量
 # 处理完后由 +RXFILE 注入命令流（stat/timeout 查设/clear/非法命令/help），
-# +TIMEOUTPASS 按超时点正常收尾，UART 输出与 golden diff 判定
+# +TIMEOUTPASS 按超时点正常收尾，UART 输出与 golden diff 判定。
+# +TIMEOUT 预算构成：总线流量与注入起点 ≈80k clk + 命令流（行间间隔按
+# 上一条命令最坏响应耗时预算，见 gen_cmd.py RESP_COST）≈530k clk +
+# 末条响应打印 ≈15k clk，实测约 650k；取 1,000,000 留约 50% 裕量
+#（预算不足时注入发不完即 FAIL，tb 有 rxfile_done 兑底不会假通过）
 demo-app: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_normal.hex $(BUILD)/demo_cmd.rxf
 	$(SOC_TB) +HEX=$(BUILD)/app_mon.hex +MONSCRIPT=$(BUILD)/demo_script_normal.hex \
-	    +RXFILE=$(BUILD)/demo_cmd.rxf +TIMEOUT=600000 +TIMEOUTPASS \
+	    +RXFILE=$(BUILD)/demo_cmd.rxf +TIMEOUT=1000000 +TIMEOUTPASS \
 	    +UARTLOG=$(BUILD)/demo_app_out.txt > $(BUILD)/demo_app_log.txt 2>&1 || \
 	    { cat $(BUILD)/demo_app_log.txt; exit 1; }
 	@grep -v '^PERF' $(BUILD)/demo_app_out.txt | diff -u scripts/demo/golden/app.txt - > /dev/null || \
@@ -165,9 +169,12 @@ demo-app: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_normal.hex $(BUILD
 # 故障事件日志与 GPIO 告警命令场景：offline 总线流量（2 次超时 + 2 次离线
 # + 1 次恢复，故障事件应已入日志且告警锁存）处理完后注入 log/alarm/
 # logclear 命令流，UART 输出与 golden diff 判定（事件时间戳逐拍确定）
+# +TIMEOUT 预算构成：offline 流量与注入起点 ≈95k clk + 命令流（两次
+# 满日志导出间隔各 500k）≈1,230k clk + 末条响应打印，实测约 1,350k；
+# 取 2,000,000 留约 50% 裕量
 demo-app-fault: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_offline.hex $(BUILD)/demo_cmd_fault.rxf
 	$(SOC_TB) +HEX=$(BUILD)/app_mon.hex +MONSCRIPT=$(BUILD)/demo_script_offline.hex \
-	    +RXFILE=$(BUILD)/demo_cmd_fault.rxf +TIMEOUT=600000 +TIMEOUTPASS \
+	    +RXFILE=$(BUILD)/demo_cmd_fault.rxf +TIMEOUT=2000000 +TIMEOUTPASS \
 	    +UARTLOG=$(BUILD)/demo_app_fault_out.txt > $(BUILD)/demo_app_fault_log.txt 2>&1 || \
 	    { cat $(BUILD)/demo_app_fault_log.txt; exit 1; }
 	@grep -v '^PERF' $(BUILD)/demo_app_fault_out.txt | diff -u scripts/demo/golden/app_fault.txt - > /dev/null || \

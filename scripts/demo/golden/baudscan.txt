@@ -9,7 +9,7 @@ FRAME crc_err
 FRAME crc_err
 AUTOBAUD scan start
 AUTOBAUD lock bitdiv=48
-FRAME crc_err
+FRAME len_err
 RSP addr=01 data=0100,0258
 REQ addr=01 start=0000 nreg=2
 RSP addr=01 data=0100,0258 resp=2592cyc
@@ -33,7 +33,7 @@ REQ addr=01 start=0000 nreg=2
 RSP addr=01 data=0100,0258 resp=2592cyc
 REQ addr=01 start=0000 nreg=2
 RSP addr=01 data=0100,0258 resp=2592cyc
-STAT frames=24 req=11 rsp=12 exr=0 crc=1 len=0 unsup=0 ferr=0 tout=0 resp=2592 ovf=0
+STAT frames=24 req=11 rsp=12 exr=0 crc=0 len=1 unsup=0 ferr=0 tout=0 resp=2592 ovf=0
 DEVS n=1 ovf=0
 DEV addr=01 req=11 rsp=12 exr=0 tout=0 rn=11 rlast=2592 rmin=2592 rmax=2592
 RESULT: PASS

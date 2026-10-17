@@ -56,6 +56,11 @@ void     proto_set_timeout(uint32_t t);
 
 const proto_stats_t *proto_stats(void);
 
+/* 已配对响应数（正常+异常回复中与挂起请求成功配对的次数）。监听器中途
+ * 接入时首帧可以是孤儿回复，responses/exc_rsp 含孤儿，不能用它们推断
+ * resp_cycles 是否应非零——不变式自检应以此计数为准（不进 STAT 行） */
+uint32_t proto_paired_rsp(void);
+
 /* Modbus CRC16（proto.c 内部帧校验同款实现）；自动波特率扫描验证器
  *（main.c）用它判定候选位速率下收到的帧是否有效 */
 uint16_t proto_crc16(const uint8_t *d, uint32_t n);

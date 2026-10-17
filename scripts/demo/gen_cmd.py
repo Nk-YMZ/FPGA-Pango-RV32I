@@ -5,13 +5,20 @@
 脚本一致：每条目 40 位 {idle_clks[31:0], byte[7:0]}，0xFFFFFFFF 结束标记。
 注入起点由 tb_soc 决定（有 MONSCRIPT 时等其发完 + 20000 clk）。
 
-行内字符间隔可以小（固件轮询几拍即可读走）；行间间隔必须留足最长命令
-响应（STAT 约 90 字符 × 176 clk/字符 ≈ 16k clk）的打印时间——固件打印
-阻塞时不读 RX，UART RX 为单字节保持，间隔过小会丢字节。
+行内字符间隔可以小（固件轮询几拍即可读走）；行间间隔必须留足上一条命令
+响应的打印时间——固件打印阻塞时不读 RX，UART RX 为单字节保持，间隔过小
+会丢字节。间隔按上一条命令的最坏响应耗时预算（RESP_COST），不随当前
+场景实际响应长度伸缩：场景扩展（如设备数、日志条数增多）时间隔依然
+自洽。Makefile 侧 +TIMEOUT 预算随之放大并注释理由。
 """
 
 INTRA = 300       # 行内字符间隔（clk）
-INTER = 40000     # 行间间隔（clk）
+INTER = 40000     # 行间默认间隔（clk；覆盖 stat≈16k/perf≈18k/help≈14k 等短响应）
+
+# 长输出命令的最坏响应耗时（clk，字符数 × 176 clk/字符）：
+#   log 满日志 64 条约 2300 字符 ≈ 405k；dev 满画像 8 台约 540 字符 ≈ 95k
+# 跟在其后的命令以前一条命令的最坏耗时作间隔
+RESP_COST = {"log": 500000, "dev": 100000}
 
 COMMANDS = [
     "stat",           # 场景流量已处理完：应见 frames=2 req=1 rsp=1
@@ -50,9 +57,12 @@ def main() -> None:
     args = ap.parse_args()
     cmds = COMMANDS if args.set == "basic" else FAULT_COMMANDS
     entries = []
+    prev = None
     for cmd in cmds:
+        idle = INTER if prev is None else max(INTER, RESP_COST.get(prev, 0))
         for i, ch in enumerate((cmd + "\n").encode("ascii")):
-            entries.append((INTRA if i else INTER, ch))
+            entries.append((INTRA if i else idle, ch))
+        prev = cmd
     entries.append((0xFFFFFFFF, 0))   # 结束标记
 
     for idle, b in entries:

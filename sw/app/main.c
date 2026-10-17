@@ -751,15 +751,18 @@ int main(void)
 
     /* 自检：只断言与场景无关的不变式；场景级期望由 Makefile 将 UART
        输出与逐场景 golden 文件 diff 判定（输出在仿真中逐拍确定）。
-       画像不变式：逐台 rsp/exr/tout 之和 == 全局值（三者必归因到地址）；
-       req 之和 ≤ 全局（广播请求不入设备账，见 proto.h 入账规则） */
+       画像不变式：逐台 tout 之和 == 全局值（超时的挂起请求必归因到
+       地址）；req/rsp/exr 之和 ≤ 全局（广播请求与 addr=0 回复不入设备账，
+       见 proto.h 入账规则） */
     const proto_stats_t *s = proto_stats();
     check(s->frames == s->requests + s->responses + s->exc_rsp
                      + s->crc_err + s->len_err + s->unsupported);
     check(s->frame_err == 0);       /* 发生器激励无帧错误 */
     check(MON_OVF == 0);            /* 功能场景速率远低于溢出临界点 */
     check(ev_ovf == 0);             /* 事件缓冲溢出同为零 */
-    check(s->responses + s->exc_rsp == 0 || s->resp_cycles > 0);
+    /* 有配对响应 ⇒ resp_cycles 有效。不能用 responses+exc_rsp 判断：
+       监听器中途接入时首帧可以是孤儿回复（无配对请求，不置 resp_cycles） */
+    check(proto_paired_rsp() == 0 || s->resp_cycles > 0);
     uint32_t sum_req = 0, sum_rsp = 0, sum_exr = 0, sum_tout = 0;
     for (uint32_t i = 0; i < proto_dev_count(); i++) {
         const proto_dev_t *d = proto_dev(i);
@@ -768,9 +771,11 @@ int main(void)
         sum_exr  += d->exc_rsp;
         sum_tout += d->timeouts;
     }
+    /* req/rsp/exr 之和 ≤ 全局：广播请求与 addr=0 的（伪造）回复均不建账；
+       tout 之和 == 全局：超时的挂起请求必为 addr≠0（广播不挂起），必归因 */
     check(sum_req <= s->requests);
-    check(sum_rsp == s->responses);
-    check(sum_exr == s->exc_rsp);
+    check(sum_rsp <= s->responses);
+    check(sum_exr <= s->exc_rsp);
     check(sum_tout == s->timeouts);
 
     print_stats();
