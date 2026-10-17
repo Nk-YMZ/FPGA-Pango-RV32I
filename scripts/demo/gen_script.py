@@ -11,7 +11,8 @@ BITDIV 必须与 tb_soc 中 mbus_gen 参数及 uart_mon 复位默认值一致。
 """
 import argparse
 
-BITDIV = 32
+BITDIV = 32               # 位周期（clk），--bitdiv 可覆盖；必须与 mbus_gen
+                          #（+MONBITDIV）及 uart_mon BITDIV（固件读回值）一致
 CHAR = 11 * BITDIV          # 一字符 = 起始位 + 8 数据位 + 停止位 = 11 位
 
 OPEN_IDLE = 50000           # 开场空闲：留足固件启动与采集使能时间
@@ -111,8 +112,16 @@ def main() -> None:
                     choices=sorted(SCENARIOS) + ["stress"],
                     help="场景名称（默认 normal）")
     ap.add_argument("--pairs", type=int, default=30, help="stress：请求-回复对数")
-    ap.add_argument("--gap", type=int, default=2000, help="stress：帧间间隔（clk）")
+    ap.add_argument("--gap", type=int, default=2000,
+                        help="stress：帧间间隔（clk，须大于 3.5 字符切帧阈值）")
+    ap.add_argument("--bitdiv", type=int, default=BITDIV,
+                        help="位周期（clk），回复延迟等按字符时间随之换算")
     args = ap.parse_args()
+
+    if args.bitdiv != BITDIV:
+        global CHAR, RSP_DELAY
+        CHAR = 11 * args.bitdiv
+        RSP_DELAY = 4 * CHAR
 
     if args.scenario == "stress":
         flow = scenario_stress(args.pairs, args.gap)

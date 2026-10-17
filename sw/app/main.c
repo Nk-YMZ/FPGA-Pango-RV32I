@@ -267,6 +267,13 @@ int main(void)
        采集使能必须先于一切打印：监听就绪前总线上的流量应当错过即错过，
        不能让慢速的横幅输出挡住采集窗口 */
     MON_CTRL = 0x4u;                /* clear 脉冲（en=0） */
+#ifdef MON_BITDIV_CFG
+    /* 压力测量扫总线速率用：编译宏指定非默认位周期时，在 en=0 窗口写入
+       （运行中改 BITDIV 属非常规用法，见 deploy.md 3.4）；随后的切帧/超时
+       阈值按读回值换算，无需另外传参。与 mbus_gen +MONBITDIV、脚本
+       --bitdiv 三处一致由 Makefile stress 目标保证 */
+    MON_BITDIV = MON_BITDIV_CFG;
+#endif
     MON_CTRL = 0x1u;                /* en=1 */
     uint32_t bitdiv = MON_BITDIV;
     uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */

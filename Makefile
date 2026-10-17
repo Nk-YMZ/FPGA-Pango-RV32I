@@ -167,21 +167,34 @@ $(BUILD)/app_mon.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/l
 	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
 
 # ---------------- 压力测试（性能测量，不作门禁） ----------------
-# 扫帧间隔梯子找 uart_mon FIFO 溢出临界点：间隔略大于切帧阈值但小于固件
-# 帧处理周期（含报告打印）时 FIFO 持续堆积。+TIMEOUTPASS 跳过停机码判定
-#（溢出场景固件自检必然报 FAIL，溢出本身正是要找的临界点），STAT/PERF
-# 行由本目标摘要输出，结果人工录入 design.md 入档
-STRESS_PAIRS ?= 30
-STRESS_GAPS  ?= 5000 4000 3000 2500 2000 1800 1600 1400 1300
+# 扫「位速率 × 帧间隔」二维梯子找 uart_mon FIFO 溢出临界点：
+#   STRESS_BITDIVS 位周期梯子（clk/位，越小总线越快；=32 为既有默认）
+#   STRESS_CHARS   帧间间隔梯子（字符时间；协议下限 3.5，梯子最小取 4）
+# 位速率三处一致性由本目标驱动同一变量保证：发生器 +MONBITDIV、固件
+# -DMON_BITDIV_CFG（en=0 时写 BITDIV 寄存器，切帧/超时阈值按读回值换算）、
+# 脚本 --bitdiv（请求-回复延迟按字符时间换算）。+TIMEOUTPASS 跳过停机码
+# 判定（溢出场景固件自检必然报 FAIL，溢出本身正是要找的临界点），STAT/
+# PERF 行由本目标摘要输出，结果人工录入 design.md 7.1 入档
+STRESS_PAIRS   ?= 30
+STRESS_BITDIVS ?= 32
+STRESS_CHARS   ?= 14 12 10 8 6 5 4
 
-stress: $(SOC_TB) $(BUILD)/app_demo.hex
-	@set -e; for g in $(STRESS_GAPS); do \
-	  python3 scripts/demo/gen_script.py --scenario stress --pairs $(STRESS_PAIRS) --gap $$g \
-	      > $(BUILD)/stress_script.hex; \
-	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/stress_script.hex \
-	      +TIMEOUT=4000000 +TIMEOUTPASS +UARTLOG=$(BUILD)/stress_out.txt \
-	      > $(BUILD)/stress_log.txt 2>&1 || { cat $(BUILD)/stress_log.txt; exit 1; }; \
-	  echo "gap=$$g clk: $$(grep '^STAT' $(BUILD)/stress_out.txt)"; \
+stress: $(SOC_TB)
+	@mkdir -p $(BUILD)
+	@set -e; for b in $(STRESS_BITDIVS); do \
+	  $(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -DMON_BITDIV_CFG=$$b -T sw/link.ld \
+	      sw/crt0.S sw/app/main.c sw/app/proto.c -o $(BUILD)/app_stress.elf; \
+	  $(RISCV)objcopy -O binary $(BUILD)/app_stress.elf $(BUILD)/app_stress.bin; \
+	  python3 scripts/bin2hex.py $(BUILD)/app_stress.bin $(BUILD)/app_stress.hex; \
+	  for c in $(STRESS_CHARS); do \
+	    g=$$(( $$b * 11 * $$c )); \
+	    python3 scripts/demo/gen_script.py --scenario stress --pairs $(STRESS_PAIRS) \
+	        --gap $$g --bitdiv $$b > $(BUILD)/stress_script.hex; \
+	    $(SOC_TB) +HEX=$(BUILD)/app_stress.hex +MONSCRIPT=$(BUILD)/stress_script.hex \
+	        +MONBITDIV=$$b +TIMEOUT=8000000 +TIMEOUTPASS +UARTLOG=$(BUILD)/stress_out.txt \
+	        > $(BUILD)/stress_log.txt 2>&1 || { cat $(BUILD)/stress_log.txt; exit 1; }; \
+	    echo "bitdiv=$$b gap=$$c字符: $$(grep '^STAT' $(BUILD)/stress_out.txt)"; \
+	  done; \
 	done
 	@grep '^PERF' $(BUILD)/stress_out.txt
 
