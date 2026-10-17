@@ -124,11 +124,12 @@ bench: $(SOC_TB)
 
 # ---------------- 应用 demo（总线监听可行性闭环，全仿真） ----------------
 # 数据通路：mbus_gen（tb 侧仿真发生器，扮演总线上的控制器与设备）→ mon_rxd
-# → uart_mon（字节+时间戳 FIFO）→ 固件轮询解析（切帧/CRC/FC03/配对/超时）
-# → UART 输出。发生器脚本由 gen_script.py 按场景生成（CRC 独立计算，与固件
-# 实现交叉验证）。判定链双重：固件自检与场景无关的不变式后停机报码（tb 核
-# 停机码 + GPIO 魔数 + 脚本发完），同时 UART 输出经 +UARTLOG 落盘后与
-# scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
+# → uart_mon（字节+时间戳 FIFO）→ 固件中断驱动取数解析（切帧/CRC/FC03/
+# 配对/超时）→ UART 输出。发生器脚本由 gen_script.py 按场景生成（CRC 独立
+# 计算，与固件实现交叉验证）。判定链双重：固件自检与场景无关的不变式后
+# 经 GPIO 魔数报码（中断驱动固件配置了 mtvec 无停机概念，+GPIOEND 以魔数
+# 写入为结束信号并核对其值 + tb 核脚本发完），同时 UART 输出经 +UARTLOG
+# 落盘后与 scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
 DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast
 DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCENARIOS)))
 
@@ -136,7 +137,7 @@ demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 	@set -e; for sc in $(DEMO_SCENARIOS); do \
 	  echo "----- demo 场景 $$sc -----"; \
 	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script_$$sc.hex \
-	      +EXPECT=1 +MAGIC=0000900d +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
+	      +MAGIC=0000900d +GPIOEND +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
 	      > $(BUILD)/demo_log_$$sc.txt 2>&1 || { cat $(BUILD)/demo_log_$$sc.txt; exit 1; }; \
 	  grep -v '^PERF' $(BUILD)/demo_out_$$sc.txt | diff -u scripts/demo/golden/$$sc.txt - > /dev/null || \
 	      { grep -v '^PERF' $(BUILD)/demo_out_$$sc.txt | diff -u scripts/demo/golden/$$sc.txt -; \

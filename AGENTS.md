@@ -43,12 +43,16 @@
   产品 RTL 中无 demo 专用逻辑
 - uart_mon（地址 0x1000_4000）：字节 + 帧错误标志 + 接收完成时刻时间戳
   的记录 FIFO，TSTAMP(peek)/DATA(弹出) 配对读取，溢出计数不静默丢数据；
-  FIFO 非空电平中断已并入 MEI 聚合（irq_en 预留，当前固件轮询不用）
+  FIFO 非空电平中断已并入 MEI 聚合（irq_en 已由固件启用）
 - 固件 proto 解析核心（切帧/CRC16/FC03/异常回复/配对/超时诊断/统计）
-  取数与处理严格分离、不接触 MMIO——为中断驱动升级预留的结构，升级时
-  proto 层与 RTL 零改动
-- 固件双形态（编译宏 DEMO_MODE）：仿真自检形态（时间窗收敛 + 停机报码）
-  与上板连续运行形态（UART 命令接口：stat/clear/timeout/bitdiv/perf/help）
+  取数与处理严格分离、不接触 MMIO——轮询升级为中断驱动时 proto 层与
+  RTL 零改动（已验证：升级后 demo golden 逐字节不变）
+- 固件中断驱动取数：MEI（uart_mon FIFO 非空 / 结果 UART RX）handler
+  取数与命令处理，mtimer 周期节拍（MTI）驱动静默期收尾/超时判定，
+  主循环 WFI 真睡眠，总线空闲零算力消耗
+- 固件双形态（编译宏 DEMO_MODE）：仿真自检形态（时间窗收敛 + GPIO 魔数
+  报码，tb +GPIOEND 判结）与上板连续运行形态（UART 命令接口：
+  stat/clear/timeout/bitdiv/perf/help）
 - demo（`make demo`）：7 个总线场景（正常/坏 CRC/截断/异常回复/未支持
   功能码/无回复超时/广播）+ 命令接口场景，判定链 = 固件场景无关不变式自检
   + UART 输出逐场景 golden 文本 diff + tb 核脚本发完；响应时间实测与
@@ -219,10 +223,11 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 1. ~~**最高速率测量设施**~~（已完成）：stress 梯子已从「只扫帧间隔」扩展为
    「位速率 × 帧间隔」二维梯子（STRESS_BITDIVS / STRESS_CHARS，三处位
    速率由 Makefile 同一变量驱动），轮询形态基线已实测入档 design.md 7.1
-2. **轮询 → 中断驱动升级**：固件取数层改为中断唤醒取数，总线空闲时
-   CPU 休眠，静默期收尾由定时节拍驱动（RTL 与 proto 层接口已预留，
-   预期零改动）。效果：采集上限提高、空闲零算力消耗，架构本身亦是
-   报告素材
+2. ~~**轮询 → 中断驱动升级**~~（已完成）：固件取数层已改为中断唤醒取数
+   （MEI：uart_mon FIFO 非空 / 结果 UART RX），静默期收尾由 mtimer 周期
+   节拍（MTI）驱动，主循环 WFI 休眠；RTL 与 proto 层按预期零改动，
+   demo golden 逐字节不变。tb 新增 +GPIOEND 结束机制（mtvec 配置后无
+   停机概念，以 GPIO 魔数写入为结束信号）
 3. **中断形态复测最高速率**：用第 1 步的同一梯子复测，轮询/中断对比
    数据入档 design.md 7.1（属第 2 步的性能评估环节，不单独立项）
 4. **设备画像（多设备分账）**：按从站地址独立统计请求/响应/超时/错误

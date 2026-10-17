@@ -19,6 +19,9 @@
 // - UART 日志落盘（应用 demo 判定链）：+UARTLOG=<路径> 时 UART TX 监视器
 //   解码的字节除打印到 stdout 外同时写入该文件，供 Makefile 与逐场景
 //   golden 文件 diff（固件输出在仿真中逐拍确定，可直接文本比对）
+// - GPIO 魔数结束（+GPIOEND，与 +MAGIC 同用）：中断驱动固件配置了 mtvec
+//   后 ecall/ebreak 走标准陷入而不再停机，结束信号改为 GPIO 魔数写入——
+//   检测到 gpio_out 非零即结束仿真并核对是否等于 MAGIC（0x900D=PASS）
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -238,6 +241,7 @@ module tb_soc;
     int    magic;
     bit    magic_en;
     bit    timeoutpass;
+    bit    gpioend;
     int    timeout_cycles;
     int    errors;
     string uartlog_file;
@@ -281,6 +285,11 @@ module tb_soc;
     if (!$value$plusargs("MONSCRIPT=%s", monscript_file)) monscript_file = "";
     if (!$value$plusargs("RXFILE=%s", rxfile)) rxfile = "";
     timeoutpass = $test$plusargs("TIMEOUTPASS");
+    // +GPIOEND：以 GPIO 魔数写入为结束信号（中断驱动固件无停机概念），
+    // 须与 +MAGIC 同用；结束后的魔数核对复用下方既有逻辑
+    gpioend = $test$plusargs("GPIOEND");
+    if (gpioend && !magic_en)
+      $fatal(1, "tb_soc: +GPIOEND 需与 +MAGIC=<魔数> 同用");
     if (irq_cnt_addr != 0 && irq_exp < 0)
       $fatal(1, "tb_soc: 中断模式需同时给出 +IRQEXP=<期望计数>");
     trace_fd = 0;
@@ -302,16 +311,17 @@ module tb_soc;
     rst_n = 1;
     running = 1;
 
-    // 等待停机 / ACT tohost / 超时
+    // 等待停机 / ACT tohost / GPIO 魔数写入 / 超时
     fork
       wait (halted);
       wait (act_done);
+      wait (gpioend && gpio_out != 32'h0);
       begin
         repeat (timeout_cycles) @(posedge clk);
         if (timeoutpass)
           $display("tb_soc: 到达 %0d 周期超时点，连续运行形态按正常结束处理", timeout_cycles);
         else
-          $fatal(1, "tb_soc: 超时未停机");
+          $fatal(1, "tb_soc: 超时未到达结束条件");
       end
     join_any
 
@@ -341,8 +351,10 @@ module tb_soc;
       end
     end else if (!timeoutpass) begin
       // TIMEOUTPASS（连续运行形态）：无停机概念，跳过停机码/魔数判定，
-      // 正确性由 UARTLOG golden diff 与下方脚本发完核对保证
-      if (halt_code != halt_code_t'(expect_code)) begin
+      // 正确性由 UARTLOG golden diff 与下方脚本发完核对保证。
+      // GPIOEND（中断驱动固件）：mtvec 已配置无停机概念，跳过停机码核对，
+      // 结束与判定都由 GPIO 魔数承担
+      if (!gpioend && halt_code != halt_code_t'(expect_code)) begin
         errors++;
         $display("FAIL: 停机原因码 %0d，期望 %0d", halt_code, expect_code);
       end
