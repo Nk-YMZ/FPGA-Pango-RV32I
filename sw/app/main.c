@@ -214,14 +214,27 @@ static void tick_process(void)
  * 期间的垃圾统计不可信，不入账（此前已打印的 FRAME 行是误配症状
  * 本身，demo baudscan 场景留档）。扫描期字节不喂 proto（proto_tick
  * 同样暂停），MTI 节拍仅作观察窗推进的唤醒源。
- * 候选表是仿真取值（含默认 32 与 baudscan 场景的 48）；上板应按实际
- * 时钟与目标波特率集（115200~9600 等）重新生成（deploy.md 3.4）。 */
+ * 候选表按 MON_FCLK 从标准波特率集自动生成（上板适配前置：上板只需
+ * 按 PDS 工程实际时钟 -DMON_FCLK 覆盖，整表随动；连续运行形态默认
+ * 50 MHz → {434, 868, 1302, 2604, 5208} ≙ {115200, 57600, 38400, 19200,
+ * 9600}）。仿真自检形态（demo）由 Makefile 传 -DMON_FCLK=500000 得缩小
+ * 版候选表 {4, 8, 13, 26, 52}——仿真时钟单位无关，缩小 f_clk 让候选值
+ * 与门控场景的周期规模匹配（baudscan/baudbail 以表内 52 clk/位制造误
+ * 配），验证的是同一条生成代码路径。RTL 复位默认值（仿真 32 clk/位）
+ * 不在表中也没关系：默认开局值只是扫描起点，误配时扫描向表中标准速
+ * 率收敛。 */
+#ifndef MON_FCLK
+#define MON_FCLK 50000000u    /* 上板按 PDS 工程实际时钟覆盖（-DMON_FCLK） */
+#endif
 #define BAUD_TRIG_BYTES 64u     /* 主判据：自上一有效帧起累计字节阈值 */
 #define BAUD_TRIG_FRAMES 2u     /* 主判据：连续无效帧数阈值 */
 #define BAUD_BAIL_BYTES  512u   /* 兜底：2×协议最长帧，永不收帧形态无条件触发 */
 #define SCAN_WIN_CHARS  48u     /* 每候选观察窗（字符时间） */
 #define SCAN_FMAX       32u     /* 扫描验证器帧缓冲上限（超长帧判无效） */
-static const uint16_t baud_cands[] = {16, 24, 32, 48, 64, 96};
+static const uint16_t baud_cands[] = {
+    MON_FCLK / 115200u, MON_FCLK / 57600u, MON_FCLK / 38400u,
+    MON_FCLK / 19200u,  MON_FCLK / 9600u,
+};
 #define BAUD_NCANDS (sizeof(baud_cands) / sizeof(baud_cands[0]))
 
 static uint32_t bitdiv;             /* 当前位周期（锁定后更新） */

@@ -150,7 +150,7 @@ DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCEN
 demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 	@set -e; for sc in $(DEMO_SCENARIOS); do \
 	  echo "----- demo 场景 $$sc -----"; \
-	  monbd=32; { [ "$$sc" = baudscan ] || [ "$$sc" = baudbail ]; } && monbd=48; \
+	  monbd=32; { [ "$$sc" = baudscan ] || [ "$$sc" = baudbail ]; } && monbd=52; \
 	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script_$$sc.hex \
 	      +MONBITDIV=$$monbd \
 	      +MAGIC=0000900d +GPIOEND +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
@@ -241,18 +241,23 @@ stress: $(SOC_TB)
 	@grep '^PERF' $(BUILD)/stress_out.txt
 
 # baudscan/baudbail 场景总线以非默认位速率运行（固件默认 32 开局误配 →
-# 自动扫描锁定 48；tb 侧 +MONBITDIV=48 与脚本一致，由 demo 目标内条件保证）
+# 自动扫描锁定 52 clk/位——demo 固件编译时传 -DMON_FCLK=500000，候选表
+# 缩小为 {4,8,13,26,52}，52 为表内速率；tb 侧 +MONBITDIV=52 与脚本一致，
+# 由 demo 目标内条件保证）
 $(BUILD)/demo_script_baudscan.hex $(BUILD)/demo_script_baudbail.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)
-	python3 $< --scenario $(patsubst $(BUILD)/demo_script_%.hex,%,$@) --bitdiv 48 > $@
+	python3 $< --scenario $(patsubst $(BUILD)/demo_script_%.hex,%,$@) --bitdiv 52 > $@
 
 $(BUILD)/demo_script_%.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)
 	python3 $< --scenario $* > $@
 
+# demo 固件传 -DMON_FCLK=500000：自动波特率候选表按 f_clk 生成，缩小
+# f_clk 使候选值（{4,8,13,26,52}）与门控场景的周期规模匹配（main.c
+# 候选表注释）；连续运行形态（app_mon）用默认 50 MHz 即上板形态
 $(BUILD)/app_demo.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
 	@mkdir -p $(BUILD)
-	$(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -DMON_FCLK=500000 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
 
 # ---------------- riscv-dv 随机指令测试 ----------------
 # Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 与 RTL 比对内存签名

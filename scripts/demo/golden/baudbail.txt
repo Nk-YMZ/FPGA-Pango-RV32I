@@ -1,13 +1,15 @@
 app-demo: Modbus RTU 监听可行性 demo
 AUTOBAUD scan start
-AUTOBAUD lock bitdiv=48
+AUTOBAUD lock bitdiv=52
 REQ addr=01 start=0000 nreg=2
-RSP addr=01 data=0100,0258 resp=2592cyc
+RSP addr=01 data=0100,0258 resp=2808cyc
 REQ addr=01 start=0000 nreg=2
-RSP addr=01 data=0100,0258 resp=2592cyc
+RSP addr=01 data=0100,0258 resp=2808cyc
 REQ addr=01 start=0000 nreg=2
-RSP addr=01 data=0100,0258 resp=2592cyc
-STAT frames=6 req=3 rsp=3 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=2592 ovf=0
+RSP addr=01 data=0100,0258 resp=2808cyc
+REQ addr=01 start=0000 nreg=2
+RSP addr=01 data=0100,0258 resp=2808cyc
+STAT frames=8 req=4 rsp=4 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=2808 ovf=0
 DEVS n=1 ovf=0
-DEV addr=01 req=3 rsp=3 exr=0 tout=0 rn=3 rlast=2592 rmin=2592 rmax=2592
+DEV addr=01 req=4 rsp=4 exr=0 tout=0 rn=4 rlast=2808 rmin=2808 rmax=2808
 RESULT: PASS

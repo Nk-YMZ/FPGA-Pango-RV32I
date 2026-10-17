@@ -201,10 +201,11 @@ def selftest() -> None:
     cfgs = [parse_line(l)[1] for l in lines if l.startswith("timeout=")]
     check([c["timeout"] for c in cfgs] == ["5632", "7000"],
           f"app timeout 查询序列 {cfgs}")
-    # baudscan（自动波特率）：误配触发扫描 → 锁定 48，锁定后恢复正常问答
+    # baudscan（自动波特率）：误配触发扫描 → 锁定 52（demo 固件缩小版
+    # 候选表内速率），锁定后恢复正常问答
     lines = (GOLDEN_DIR / "baudscan.txt").read_text(encoding="utf-8").splitlines()
     autos = [parse_line(l)[1] for l in lines if l.startswith("AUTOBAUD")]
-    check(len(autos) == 2 and autos[1].get("bitdiv") == "48",
+    check(len(autos) == 2 and autos[1].get("bitdiv") == "52",
           f"baudscan AUTOBAUD 序列 {autos}")
     # app_fault（事件日志/告警命令）：offline 场景的 5 条事件导出 +
     # alarm 查询 1→0（alarm off 生效）+ logclear 后空日志
