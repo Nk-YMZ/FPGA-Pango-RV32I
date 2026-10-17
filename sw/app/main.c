@@ -752,8 +752,8 @@ int main(void)
     /* 自检：只断言与场景无关的不变式；场景级期望由 Makefile 将 UART
        输出与逐场景 golden 文件 diff 判定（输出在仿真中逐拍确定）。
        画像不变式：逐台 tout 之和 == 全局值（超时的挂起请求必归因到
-       地址）；req/rsp/exr 之和 ≤ 全局（广播请求与 addr=0 回复不入设备账，
-       见 proto.h 入账规则） */
+       地址；以画像表未溢出为前提，见下方守卫注释）；req/rsp/exr 之和
+       ≤ 全局（广播请求与 addr=0 回复不入设备账，见 proto.h 入账规则） */
     const proto_stats_t *s = proto_stats();
     check(s->frames == s->requests + s->responses + s->exc_rsp
                      + s->crc_err + s->len_err + s->unsupported);
@@ -771,12 +771,15 @@ int main(void)
         sum_exr  += d->exc_rsp;
         sum_tout += d->timeouts;
     }
-    /* req/rsp/exr 之和 ≤ 全局：广播请求与 addr=0 的（伪造）回复均不建账；
-       tout 之和 == 全局：超时的挂起请求必为 addr≠0（广播不挂起），必归因 */
+    /* req/rsp/exr 之和 ≤ 全局：广播请求与 addr=0 的（伪造）回复均不建账。
+       tout 之和 == 全局（「每个超时必归因」全强度）以画像表未溢出为前提：
+       挂起与建账无关，表满时新地址请求仍挂起，其超时只进全局不进画像，
+       表溢出态下 sum_tout < 全局属预期（GLM 复核建议四），故以
+       dev_ovf==0 作守卫而非放宽为 ≤（≤ 会在常态下丢失检查强度） */
     check(sum_req <= s->requests);
     check(sum_rsp <= s->responses);
     check(sum_exr <= s->exc_rsp);
-    check(sum_tout == s->timeouts);
+    check(proto_dev_ovf() != 0 || sum_tout == s->timeouts);
 
     print_stats();
     print_devs();
