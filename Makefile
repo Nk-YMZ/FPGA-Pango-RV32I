@@ -24,7 +24,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ prototest lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app stress
+.PHONY: test unit smoke integ prototest lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app demo9600 stress
 
 test: unit smoke integ prototest
 
@@ -207,6 +207,62 @@ $(BUILD)/demo_cmd.rxf: scripts/demo/gen_cmd.py
 $(BUILD)/app_mon.elf: sw/app/main.c sw/app/proto.c sw/app/proto.h sw/crt0.S sw/link.ld
 	@mkdir -p $(BUILD)
 	$(RISCV)gcc $(RISCV_FLAGS) -O2 -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $@
+
+# ---------------- 真实波特率量级复验（待办 6，上板前验证补强，不作门禁） ------
+# 全部 15 个总线场景在 9600 波特量级（50 MHz → bitdiv=5208）复跑，验证
+# 切帧/超时/收敛/自动波特率等长时间窗行为在真实量级下与高速仿真一致。
+# 位速率三处一致机制同 stress：脚本 --bitdiv、tb +MONBITDIV、固件
+# -DMON_BITDIV_CFG（en=0 窗口写入，阈值按读回值换算）；候选表用默认
+# MON_FCLK=50MHz 的真实表 {434,868,1302,2604,5208}，baudscan/baudbail
+# 固件故意从 2604（19200 波特）开局制造误配 → 扫描锁定 5208。
+# 判定：RESULT: PASS 为核；13 个静态场景另核 STAT 分类计数与 bitdiv=32
+# golden 一致（resp= 随位速率缩放，剔除后比对）；baudscan/baudbail 的
+# 垃圾帧数与锁定路径随误配起点结构性变化，只核锁定行与 PASS。
+# D9600_DIV=9600 波特位周期；D9600_START=误配开局位周期（19200，候选表内）
+D9600_DIV   ?= 5208
+D9600_START ?= 2604
+D9600_STATIC := normal bad_crc truncated exception unsupported_fc timeout \
+                broadcast multidev interference retrystorm offline longframe longbad
+
+demo9600: $(SOC_TB)
+	@mkdir -p $(BUILD)
+	@set -e; \
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -DMON_BITDIV_CFG=$(D9600_DIV) \
+	    -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $(BUILD)/app_9600.elf; \
+	$(RISCV)gcc $(RISCV_FLAGS) -O2 -DDEMO_MODE -DMON_BITDIV_CFG=$(D9600_START) \
+	    -T sw/link.ld sw/crt0.S sw/app/main.c sw/app/proto.c -o $(BUILD)/app_9600_mis.elf; \
+	for f in app_9600 app_9600_mis; do \
+	  $(RISCV)objcopy -O binary $(BUILD)/$$f.elf $(BUILD)/$$f.bin; \
+	  python3 scripts/bin2hex.py $(BUILD)/$$f.bin $(BUILD)/$$f.hex; \
+	done; \
+	for sc in $(D9600_STATIC) baudscan baudbail; do \
+	  echo "----- 9600 量级场景 $$sc -----"; \
+	  python3 scripts/demo/gen_script.py --scenario $$sc --bitdiv $(D9600_DIV) \
+	      > $(BUILD)/demo9600_script_$$sc.hex; \
+	  fw=app_9600; tout=20000000; \
+	  if [ "$$sc" = baudscan ] || [ "$$sc" = baudbail ]; then \
+	    fw=app_9600_mis; tout=80000000; \
+	  fi; \
+	  $(SOC_TB) +HEX=$(BUILD)/$$fw.hex +MONSCRIPT=$(BUILD)/demo9600_script_$$sc.hex \
+	      +MONBITDIV=$(D9600_DIV) +MAGIC=0000900d +GPIOEND +TIMEOUT=$$tout \
+	      +UARTLOG=$(BUILD)/demo9600_out_$$sc.txt \
+	      > $(BUILD)/demo9600_log_$$sc.txt 2>&1 || \
+	      { cat $(BUILD)/demo9600_log_$$sc.txt; exit 1; }; \
+	  grep -q '^RESULT: PASS' $(BUILD)/demo9600_out_$$sc.txt || \
+	      { echo "FAIL: $$sc 未报 PASS"; exit 1; }; \
+	  if [ "$$sc" = baudscan ] || [ "$$sc" = baudbail ]; then \
+	    grep -q '^AUTOBAUD lock bitdiv=$(D9600_DIV)$$' $(BUILD)/demo9600_out_$$sc.txt || \
+	        { echo "FAIL: $$sc 未锁定 $(D9600_DIV)"; exit 1; }; \
+	  else \
+	    grep '^STAT' $(BUILD)/demo9600_out_$$sc.txt | sed 's/ resp=[0-9]*//' > $(BUILD)/demo9600_stat.txt; \
+	    grep '^STAT' scripts/demo/golden/$$sc.txt | sed 's/ resp=[0-9]*//' | \
+	        diff - $(BUILD)/demo9600_stat.txt > /dev/null || \
+	        { echo "FAIL: $$sc STAT 分类计数与 bitdiv=32 golden 不一致"; \
+	          grep '^STAT' scripts/demo/golden/$$sc.txt; \
+	          grep '^STAT' $(BUILD)/demo9600_out_$$sc.txt; exit 1; }; \
+	  fi; \
+	done
+	@echo "===== 9600 量级复验通过（15 场景 PASS + STAT 分类计数一致/锁定核对） ====="
 
 # ---------------- 压力测试（性能测量，不作门禁） ----------------
 # 扫「位速率 × 帧间隔」二维梯子找 uart_mon FIFO 溢出临界点：
