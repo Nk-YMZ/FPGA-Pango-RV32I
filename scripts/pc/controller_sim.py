@@ -68,7 +68,7 @@ def main() -> None:
                 if chunk:
                     rsp += chunk
                     deadline = max(deadline, time.monotonic()
-                                   + 3.5 * 10 / args.baud)
+                                   + 3.5 * 11 / args.baud)  # 一字符 11 位
                 elif rsp:
                     break
             dt = time.monotonic() - t0

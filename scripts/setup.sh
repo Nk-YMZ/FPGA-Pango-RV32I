@@ -9,7 +9,8 @@
 #   2. external/ 下拉取固定版本的外部组件（riscv-arch-test / coremark / sail / riscv-dv）
 #   3. 用户级安装 mise（~/.local/bin/mise，独立二进制），并安装 ACT 框架所需的
 #      ruby/bundler/uv（~/.local/share/mise，由仓库 .mise.toml 驱动）
-#   4. 创建项目 Python 虚拟环境 .venv（riscv-dv Pygen 依赖，Python 3.12，不动系统）
+#   4. 创建项目 Python 虚拟环境 .venv（riscv-dv Pygen 依赖 + PC 脚本
+#      pyserial，Python 3.12，不动系统）
 #   5. 冒烟验证 make test + 单种子小规模 make rand
 set -euo pipefail
 cd "$(dirname "$0")/.."   # 仓库根目录
@@ -119,7 +120,8 @@ if [ ! -x .venv/bin/python ]; then
   uv venv --python 3.12 .venv
 fi
 uv pip install --python .venv/bin/python -r scripts/rand/requirements.txt -q
-echo "  .venv 就绪"
+uv pip install --python .venv/bin/python -r scripts/pc/requirements.txt -q
+echo "  .venv 就绪（Pygen 依赖 + PC 脚本 pyserial）"
 
 echo "== 5/5 冒烟验证 =="
 make test >/dev/null 2>&1 && echo "  make test 通过" || { echo "  make test 失败，请检查"; exit 1; }

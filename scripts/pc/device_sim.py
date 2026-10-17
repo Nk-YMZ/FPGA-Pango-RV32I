@@ -23,7 +23,10 @@
 依赖 pyserial（仅实际开串口时需要；Arch 用 pacman -S python-pyserial，
 Windows 用 pip install pyserial，--port COMx）。帧切分按 3.5 字符空闲
 （9600 下约 4 ms；≥19200 波特应按 Modbus 规范改用固定阈值，见
-deploy.md 3.4）。
+deploy.md 3.4）：逐字节读 + read 超时=t3.5——read(1) 超时返回空即
+帧界。不能用「超时粒度 50ms 的缓冲读」：帧间隔 <50ms 的流量会落进
+同一缓冲被并帧吞掉（9600 下 t3.5 仅 3.6ms，高帧率轮询/快速重试演示
+会失真）。
 """
 import argparse
 import sys
@@ -133,27 +136,28 @@ def main() -> None:
             ap.error(f"--mode {args.mode}: 非法模式")
         devs = {args.addr: args.mode}
 
+    frame_gap = 3.5 * 11 / args.baud     # t3.5 切帧（秒；一字符 11 位，
+                                         # 与固件/deploy.md 口径一致）
+    # 逐字节读：read 超时=t3.5，帧内字节背靠背到达即时返回，帧间静默超
+    # t3.5 返回空字节串即帧界——切帧粒度就是 t3.5 本身，帧间隔小至协议
+    # 下限也能正确分帧
     ser = serial.Serial(args.port, args.baud, bytesize=8, parity="N",
-                        stopbits=1, timeout=0.05)
-    frame_gap = 3.5 * 10 / args.baud     # t3.5 切帧（秒）
+                        stopbits=1, timeout=frame_gap)
     print(f"device: {args.port} @ {args.baud} 8N1, "
           f"设备={ {a: m for a, m in sorted(devs.items())} }" +
           (f" delay={args.delay_ms}ms" if "delay" in devs.values() else ""))
 
     buf = b""
-    last_rx = 0.0
     n = 0
     flaky_state = {}            # flaky:N 各地址剩余正常应答次数
     try:
         while True:
-            chunk = ser.read(64)
-            now = time.monotonic()
-            if chunk:
-                buf += chunk
-                last_rx = now
+            b = ser.read(1)
+            if b:
+                buf += b
                 continue
-            # 静默超 t3.5 且缓冲非空：一帧收齐
-            if buf and now - last_rx > frame_gap:
+            # read 超时（静默已达 t3.5）且缓冲非空：一帧收齐
+            if buf:
                 frame, buf = buf, b""
                 n += 1
                 addr = frame[0] if frame else -1

@@ -60,7 +60,9 @@
 故障用例扩充（7 场景）、超时诊断、统计与配置命令均已完成并在仿真中
 验证（`make demo`），性能测量已入档（design.md 7.1）。当前固件连续
 运行形态即为阶段二直接烧录的版本；PC 侧三个联调脚本已入库
-（scripts/pc/，无硬件自检通过，真实串口收发待联调）。
+（scripts/pc/）：跨平台无硬件自检通过，真实串口 IO 路径已经 pty
+冒烟验证（Linux，controller/device 伪终端对跑，见 3.5）；真实电气
+链路（USB-RS485 适配器）收发待阶段二联调。
 
 ## 3. 阶段二：电脑作信号源、真实接线（重点）
 
@@ -143,7 +145,8 @@
    （对账基准），等回复并打印 RTT；
 2. **设备模拟**（device_sim.py）：收请求后按模式响应——正常 / 坏 CRC /
    延迟回复 / 不回复 / flaky:N 应答 N 次后离线（故障注入都在这里做，
-   不需要改硬件）；
+   不需要改硬件）；帧切分为逐字节读 + read 超时=t3.5（帧间隔小至协议
+   下限也能正确分帧，pty 冒烟含 10ms 背靠背帧回归）；
 3. **结果显示**（display.py）：打开板载 USB 串口，把板上输出（REQ/RSP/
    EXR/TIMEOUT/DIAG/FRAME/STAT/PERF 行，以及 OK/ERR/配置查询响应/RESULT 等）
    解析成结构化事件显示，周期数按
@@ -152,8 +155,10 @@
 USB 插拔后串口编号会变，使用明确的配置或稳定设备路径，**别把结果串口
 误当总线发送端**。脚本跨平台：Linux 下串口为 /dev/ttyUSBx，Windows 下为
 COMx（--port 指定），pyserial 安装分别为 pacman / pip；统一自检入口
-`python3 scripts/pc/selftest.py`（纯标准库，跨平台），细节按联调侧实际
-环境确认。分析仪命令接口为单字节接收保持：PC 自动化发命令必须等上一条
+`python3 scripts/pc/selftest.py`（纯标准库，跨平台）；`run_selftest.sh`
+在 Linux 且 pyserial 可用时追加 pty 冒烟阶段（pty_smoke.py：两对伪
+终端对跑 controller/device 真实串口 IO 路径，含 10ms 背靠背帧的分帧
+回归），无 pty/pyserial 自动跳过。细节按联调侧实际环境确认。分析仪命令接口为单字节接收保持：PC 自动化发命令必须等上一条
 响应行返回后再发下一条，否则字节丢失（design.md 6.4）。
 
 **多设备与增值诊断功能 PC 操作**（多设备画像、跨帧模式诊断、自动波特率、
