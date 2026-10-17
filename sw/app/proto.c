@@ -21,6 +21,44 @@ static int      pend_valid;
 static uint8_t  pend_addr;
 static uint32_t pend_end_ts;
 
+/* 设备画像表（入账规则见 proto.h） */
+static proto_dev_t devs[PROTO_MAX_DEV];
+static uint32_t    ndev, dev_ovf;
+
+static proto_dev_t *dev_lookup(uint8_t addr, int create)
+{
+    for (uint32_t i = 0; i < ndev; i++)
+        if (devs[i].addr == addr) return &devs[i];
+    if (!create) return 0;
+    if (ndev < PROTO_MAX_DEV) {
+        devs[ndev] = (proto_dev_t){ .addr = addr, .resp_min = 0xFFFFFFFFu };
+        return &devs[ndev++];
+    }
+    dev_ovf++;              /* 表满：全局统计照计，画像不归因（不静默） */
+    return 0;
+}
+
+static void dev_resp_update(proto_dev_t *d, uint32_t dt)
+{
+    d->resp_n++;
+    d->resp_last = dt;
+    if (dt < d->resp_min) d->resp_min = dt;
+    if (dt > d->resp_max) d->resp_max = dt;
+}
+
+/* 待回复超时的统一报告（proto_tick 墙钟路径与新请求覆盖路径共用） */
+static void report_timeout(uint8_t addr)
+{
+    st.timeouts++;
+    proto_dev_t *d = dev_lookup(addr, 0);
+    if (d) d->timeouts++;
+    app_put_str("TIMEOUT addr=");
+    app_put_hex(addr, 2);
+    app_put_str(" thresh=");
+    app_put_dec(timeout_thresh);
+    app_put_str("cyc no-response\n");
+}
+
 /* Modbus CRC16（多项式 0xA001 反向，初值 0xFFFF），与 gen_script.py 交叉验证 */
 static uint16_t crc16(const uint8_t *d, uint32_t n)
 {
@@ -68,6 +106,8 @@ static void process_frame(void)
             return;
         }
         st.exc_rsp++;
+        proto_dev_t *d = dev_lookup(addr, 1);
+        if (d) d->exc_rsp++;
         app_put_str("EXR addr=");
         app_put_hex(addr, 2);
         app_put_str(" fc=");
@@ -78,6 +118,7 @@ static void process_frame(void)
             /* 异常回复是设备的有效应答（在线但拒绝）：解除待回复并记响应时间 */
             st.resp_cycles = f_first - pend_end_ts;
             pend_valid = 0;
+            if (d) dev_resp_update(d, st.resp_cycles);
             app_put_str(" resp=");
             app_put_dec(st.resp_cycles);
             app_put_str("cyc");
@@ -95,11 +136,23 @@ static void process_frame(void)
     if (flen == 8) {                /* FC03 请求：addr fc start_hi start_lo n_hi n_lo crc */
         st.requests++;
         /* 广播（addr=0）不挂起待回复：Modbus 广播不期待任何回复，挂起只会
-           误报超时（FC03 广播本身非法，此处是防御性口径） */
+           误报超时（FC03 广播本身非法，此处是防御性口径）；也不入设备账 */
+        proto_dev_t *d = 0;
         if (addr != 0u) {
+            /* 覆盖旧挂起前先补判超时：超时判定不能只依赖 proto_tick——
+               取数积压（如报告打印阻塞 handler）会把时间上分离的总线
+               事件压成处理上连续的事件，新请求可能在两次 tick 之间完成
+               覆盖，旧请求的超时机会被压没（multidev 场景实测检出）。
+               新请求已到而旧请求阈值内无有效回复即超时成立；半双工总线
+               上不存在「回复在传同时新请求到达」，无需静默条件；时间基准
+               用硬件时间戳（新帧首字节），与处理延迟无关 */
+            if (pend_valid && (f_first - pend_end_ts) > timeout_thresh)
+                report_timeout(pend_addr);
             pend_valid  = 1;
             pend_addr   = addr;
             pend_end_ts = f_last;
+            d = dev_lookup(addr, 1);
+            if (d) d->requests++;
         }
         app_put_str("REQ addr=");
         app_put_hex(addr, 2);
@@ -111,6 +164,8 @@ static void process_frame(void)
     } else if (flen >= 5 && flen == 5u + buf[2]) {  /* FC03 正常回复 */
         uint32_t i;
         st.responses++;
+        proto_dev_t *d = dev_lookup(addr, 1);
+        if (d) d->responses++;
         app_put_str("RSP addr=");
         app_put_hex(addr, 2);
         app_put_str(" data=");
@@ -121,6 +176,7 @@ static void process_frame(void)
         if (pend_valid && pend_addr == addr) {      /* 与待回复请求配对 */
             st.resp_cycles = f_first - pend_end_ts;
             pend_valid = 0;
+            if (d) dev_resp_update(d, st.resp_cycles);
             app_put_str(" resp=");
             app_put_dec(st.resp_cycles);
             app_put_str("cyc");
@@ -139,6 +195,8 @@ void proto_init(uint32_t gap, uint32_t timeout)
     flen = 0;
     overlong = 0;
     pend_valid = 0;
+    ndev = 0;
+    dev_ovf = 0;
     st = (proto_stats_t){0};
 }
 
@@ -172,12 +230,7 @@ void proto_tick(uint32_t now)
         && (now - last_ts) > gap_thresh) {
         uint8_t pa = pend_addr;
         pend_valid = 0;
-        st.timeouts++;
-        app_put_str("TIMEOUT addr=");
-        app_put_hex(pa, 2);
-        app_put_str(" thresh=");
-        app_put_dec(timeout_thresh);
-        app_put_str("cyc no-response\n");
+        report_timeout(pa);
     }
 }
 
@@ -191,6 +244,8 @@ void proto_clear(void)
     flen = 0;
     overlong = 0;
     pend_valid = 0;
+    ndev = 0;
+    dev_ovf = 0;
     st = (proto_stats_t){0};
 }
 
@@ -207,4 +262,19 @@ void proto_set_timeout(uint32_t t)
 const proto_stats_t *proto_stats(void)
 {
     return &st;
+}
+
+uint32_t proto_dev_count(void)
+{
+    return ndev;
+}
+
+uint32_t proto_dev_ovf(void)
+{
+    return dev_ovf;
+}
+
+const proto_dev_t *proto_dev(uint32_t idx)
+{
+    return idx < ndev ? &devs[idx] : 0;
 }

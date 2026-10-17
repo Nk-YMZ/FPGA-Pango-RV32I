@@ -229,6 +229,42 @@ static void print_stats(void)
     app_put_str("\n");
 }
 
+/* 设备画像输出：DEVS 头（建账数/表满溢出）+ 逐台 DEV 行（首次出现顺序）。
+   响应时间无样本（rn=0）时 rlast/rmin/rmax 一律打 0 */
+static void print_dev_line(const proto_dev_t *d)
+{
+    app_put_str("DEV addr=");
+    app_put_hex(d->addr, 2);
+    app_put_str(" req=");
+    app_put_dec(d->requests);
+    app_put_str(" rsp=");
+    app_put_dec(d->responses);
+    app_put_str(" exr=");
+    app_put_dec(d->exc_rsp);
+    app_put_str(" tout=");
+    app_put_dec(d->timeouts);
+    app_put_str(" rn=");
+    app_put_dec(d->resp_n);
+    app_put_str(" rlast=");
+    app_put_dec(d->resp_n ? d->resp_last : 0);
+    app_put_str(" rmin=");
+    app_put_dec(d->resp_n ? d->resp_min : 0);
+    app_put_str(" rmax=");
+    app_put_dec(d->resp_n ? d->resp_max : 0);
+    app_put_str("\n");
+}
+
+static void print_devs(void)
+{
+    app_put_str("DEVS n=");
+    app_put_dec(proto_dev_count());
+    app_put_str(" ovf=");
+    app_put_dec(proto_dev_ovf());
+    app_put_str("\n");
+    for (uint32_t i = 0; i < proto_dev_count(); i++)
+        print_dev_line(proto_dev(i));
+}
+
 /* 性能测量输出（PERF 行不进 golden 门禁：性能数字是评估而非正确性判定，
    同 CoreMark bench 原则；diff 时由 Makefile 过滤）。口径：
    bytes/feed_cyc = 逐字节采集次数与总耗时；frames/frame_cyc/frame_max =
@@ -287,6 +323,8 @@ static void cmd_exec(void)
     cmd_buf[cmd_len] = '\0';
     if (streq(cmd_buf, "stat")) {
         print_stats();
+    } else if (streq(cmd_buf, "dev")) {
+        print_devs();
     } else if (streq(cmd_buf, "clear")) {
         proto_clear();
         /* perf 计数同步清零（口径：清零时刻之后的开销才计入；本响应自身
@@ -317,7 +355,7 @@ static void cmd_exec(void)
         app_put_dec(MON_BITDIV);
         app_put_str("\n");
     } else if (streq(cmd_buf, "help")) {
-        app_put_str("cmds: stat | clear | timeout [clk] | bitdiv | perf | help\n");
+        app_put_str("cmds: stat | dev | clear | timeout [clk] | bitdiv | perf | help\n");
     } else if (streq(cmd_buf, "perf")) {
         print_perf();
     } else {
@@ -387,15 +425,30 @@ int main(void)
     __asm__ volatile("csrc mstatus, %0" :: "r"(MSTATUS_MIE));
 
     /* 自检：只断言与场景无关的不变式；场景级期望由 Makefile 将 UART
-       输出与逐场景 golden 文件 diff 判定（输出在仿真中逐拍确定） */
+       输出与逐场景 golden 文件 diff 判定（输出在仿真中逐拍确定）。
+       画像不变式：逐台 rsp/exr/tout 之和 == 全局值（三者必归因到地址）；
+       req 之和 ≤ 全局（广播请求不入设备账，见 proto.h 入账规则） */
     const proto_stats_t *s = proto_stats();
     check(s->frames == s->requests + s->responses + s->exc_rsp
                      + s->crc_err + s->len_err + s->unsupported);
     check(s->frame_err == 0);       /* 发生器激励无帧错误 */
     check(MON_OVF == 0);            /* 功能场景速率远低于溢出临界点 */
     check(s->responses + s->exc_rsp == 0 || s->resp_cycles > 0);
+    uint32_t sum_req = 0, sum_rsp = 0, sum_exr = 0, sum_tout = 0;
+    for (uint32_t i = 0; i < proto_dev_count(); i++) {
+        const proto_dev_t *d = proto_dev(i);
+        sum_req  += d->requests;
+        sum_rsp  += d->responses;
+        sum_exr  += d->exc_rsp;
+        sum_tout += d->timeouts;
+    }
+    check(sum_req <= s->requests);
+    check(sum_rsp == s->responses);
+    check(sum_exr == s->exc_rsp);
+    check(sum_tout == s->timeouts);
 
     print_stats();
+    print_devs();
     print_perf();
     finish(fails);
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）

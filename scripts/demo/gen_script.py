@@ -95,6 +95,26 @@ def scenario_stress(pairs: int, gap: int) -> list:
     return seq
 
 
+def scenario_multidev() -> list:
+    """多设备分账：四台从站共线——01 两轮正常问答（第二轮回复延迟 8
+    字符，拉开响应时间分布）、02 正常（不同寄存器值）、03 异常回复
+    （在线但拒绝）、04 无回复超时。画像应逐台独立累计。
+    04 的超时上报（16 字符）先于 01 第二轮请求（20 字符后）到来：新请求
+    会覆盖单挂起槽位（design.md 6.4），间隔必须大于超时阈值。"""
+    req2 = frame(bytes([0x02, 0x03, 0x00, 0x00, 0x00, 0x02]))
+    rsp2 = frame(bytes([0x02, 0x03, 0x04, 0x00, 0x0a, 0x00, 0x14]))
+    req3 = frame(bytes([0x03, 0x03, 0x00, 0x00, 0x00, 0x02]))
+    exr3 = frame(bytes([0x03, 0x83, 0x02]))
+    req4 = frame(bytes([0x04, 0x03, 0x00, 0x00, 0x00, 0x02]))
+    return [
+        (OPEN_IDLE, REQ), (RSP_DELAY, RSP),
+        (RSP_DELAY, req2), (RSP_DELAY, rsp2),
+        (RSP_DELAY, req3), (RSP_DELAY, exr3),
+        (RSP_DELAY, req4),
+        (20 * CHAR, REQ), (8 * CHAR, RSP),
+    ]
+
+
 SCENARIOS = {
     "normal": scenario_normal,
     "bad_crc": scenario_bad_crc,
@@ -103,6 +123,7 @@ SCENARIOS = {
     "unsupported_fc": scenario_unsupported_fc,
     "timeout": scenario_timeout,
     "broadcast": scenario_broadcast,
+    "multidev": scenario_multidev,
 }
 
 

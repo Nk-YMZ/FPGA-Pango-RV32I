@@ -11,7 +11,12 @@
 用法：
   python3 device_sim.py --port /dev/ttyUSB1 [--baud 9600] [--addr 1]
       --mode normal [--delay-ms 50]
+  python3 device_sim.py --port /dev/ttyUSB1 --dev 1:normal --dev 2:bad_crc \
+      --dev 3:no_reply          # 多设备实例（同一适配器，Modbus 保证同一
+                                # 时刻只有一台在发，无需多路硬件）
   python3 device_sim.py --selftest   # 无硬件自检（各模式帧构造）
+
+--dev ADDR:MODE 可重复给出，与单设备 --addr/--mode 二选一。
 
 依赖 pyserial（仅实际开串口时需要；Arch 用 pacman -S python-pyserial，
 Windows 用 pip install pyserial，--port COMx）。帧切分按 3.5 字符空闲
@@ -69,6 +74,8 @@ def main() -> None:
     ap.add_argument("--addr", type=int, default=1)
     ap.add_argument("--mode", choices=["normal", "bad_crc", "delay",
                                        "no_reply"], default="normal")
+    ap.add_argument("--dev", action="append", default=[], metavar="ADDR:MODE",
+                        help="多设备实例，可重复（与 --addr/--mode 二选一）")
     ap.add_argument("--delay-ms", type=float, default=50.0)
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
@@ -79,12 +86,24 @@ def main() -> None:
 
     import serial    # 延迟导入：selftest 不依赖 pyserial
 
+    # 设备表：地址 → 模式（--dev 优先，否则单设备 --addr/--mode）
+    modes = {"normal", "bad_crc", "delay", "no_reply"}
+    if args.dev:
+        devs = {}
+        for spec in args.dev:
+            a, _, m = spec.partition(":")
+            if m not in modes:
+                ap.error(f"--dev {spec}: 模式须为 {'/'.join(sorted(modes))}")
+            devs[int(a)] = m
+    else:
+        devs = {args.addr: args.mode}
+
     ser = serial.Serial(args.port, args.baud, bytesize=8, parity="N",
                         stopbits=1, timeout=0.05)
     frame_gap = 3.5 * 10 / args.baud     # t3.5 切帧（秒）
-    print(f"device: {args.port} @ {args.baud} 8N1, addr={args.addr}, "
-          f"mode={args.mode}" + (f" delay={args.delay_ms}ms"
-                                 if args.mode == "delay" else ""))
+    print(f"device: {args.port} @ {args.baud} 8N1, "
+          f"设备={ {a: m for a, m in sorted(devs.items())} }" +
+          (f" delay={args.delay_ms}ms" if "delay" in devs.values() else ""))
 
     buf = b""
     last_rx = 0.0
@@ -101,14 +120,15 @@ def main() -> None:
             if buf and now - last_rx > frame_gap:
                 frame, buf = buf, b""
                 n += 1
-                if not (len(frame) >= 2 and frame[0] == args.addr):
+                addr = frame[0] if frame else -1
+                if addr not in devs:
                     print(f"#{n} rx={frame.hex(' ')} | "
-                          f"地址不匹配（本机 {args.addr}），忽略")
+                          f"地址不匹配（本机 {sorted(devs)}），忽略")
                 elif not check_crc(frame):
                     # 真实从站对 CRC 错误的请求静默（不回任何字节）
                     print(f"#{n} rx={frame.hex(' ')} | CRC 错误，静默")
                 else:
-                    rsp = respond(args.mode, args.addr, args.delay_ms)
+                    rsp = respond(devs[addr], addr, args.delay_ms)
                     if rsp is not None:
                         ser.write(rsp)
                         ser.flush()

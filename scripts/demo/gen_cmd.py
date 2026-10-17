@@ -15,6 +15,7 @@ INTER = 40000     # 行间间隔（clk）
 
 COMMANDS = [
     "stat",           # 场景流量已处理完：应见 frames=2 req=1 rsp=1
+    "dev",            # 设备画像：应见 addr=01 一台（req=1 rsp=1）
     "timeout",        # 查阈值：默认 5632（16 字符 × 11 位 × BITDIV=32）
     "timeout 7000",   # 改阈值
     "timeout",        # 再查：应为 7000（确认运行时配置生效）

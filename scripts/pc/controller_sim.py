@@ -3,9 +3,12 @@
 保存收发记录作为对账基准。
 
 用法：
-  python3 controller_sim.py --port /dev/ttyUSB0 [--baud 9600] [--addr 1]
+  python3 controller_sim.py --port /dev/ttyUSB0 [--baud 9600] [--addr 1,2,3]
       [--reg 0] [--count 2] [--interval 1.0] [--times 0(无限)]
   python3 controller_sim.py --selftest   # 无硬件自检（帧构造/CRC）
+
+--addr 支持逗号分隔多地址，按列表轮询（多设备演示，配合 device_sim
+多实例或 --dev 多设备模式）。
 
 依赖 pyserial（仅实际开串口时需要；Arch 用 pacman -S python-pyserial，
 勿用 pip 直装系统 Python；Windows 用 pip install pyserial，--port COMx）。
@@ -22,7 +25,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Modbus RTU 控制器模拟（FC03）")
     ap.add_argument("--port", default="/dev/ttyUSB0")
     ap.add_argument("--baud", type=int, default=9600)
-    ap.add_argument("--addr", type=int, default=1, help="目标设备地址")
+    ap.add_argument("--addr", default="1",
+                        help="目标设备地址，逗号分隔多地址轮询")
     ap.add_argument("--reg", type=int, default=0, help="起始寄存器")
     ap.add_argument("--count", type=int, default=2, help="读寄存器个数")
     ap.add_argument("--interval", type=float, default=1.0, help="请求间隔（秒）")
@@ -39,16 +43,19 @@ def main() -> None:
 
     import serial    # 延迟导入：selftest 不依赖 pyserial
 
-    req = build_fc03_request(args.addr, args.reg, args.count)
+    addrs = [int(x) for x in str(args.addr).split(",")]
+    reqs = {a: build_fc03_request(a, args.reg, args.count) for a in addrs}
     ser = serial.Serial(args.port, args.baud, bytesize=8, parity="N",
                         stopbits=1, timeout=0.1)
-    print(f"controller: {args.port} @ {args.baud} 8N1, "
-          f"请求={req.hex(' ')}（寄存器值约定 {REG_VALUES}）")
+    print(f"controller: {args.port} @ {args.baud} 8N1, 地址列表={addrs}, "
+          f"（寄存器值约定 {REG_VALUES}）")
 
     n = 0
     try:
         while args.times == 0 or n < args.times:
             n += 1
+            addr = addrs[(n - 1) % len(addrs)]   # 轮询列表
+            req = reqs[addr]
             ser.reset_input_buffer()
             t0 = time.monotonic()
             ser.write(req)

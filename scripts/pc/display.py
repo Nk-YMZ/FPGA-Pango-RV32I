@@ -8,7 +8,7 @@
   python3 display.py --selftest   # 无硬件自检（实解析 demo golden 文件）
 
 固件输出协议（sw/app/，整行 ASCII）：banner / REQ / RSP / EXR / TIMEOUT /
-FRAME / STAT / PERF / OK / ERR / timeout=<n> / cmds: / RESULT。
+FRAME / STAT / DEVS / DEV / PERF / OK / ERR / timeout=<n> / cmds: / RESULT。
 --fclk 用于把周期数换算成时间，须按 PDS 工程实际时钟设置（示例 50 MHz）。
 依赖 pyserial（仅实际开串口时需要）。
 Windows 要点：串口名用 --port COMx（如 COM3）；pyserial 用
@@ -49,7 +49,7 @@ def parse_line(line: str):
         f = _kvs(m.group(2))
         f["kind"] = m.group(1)
         return ("frame", f)
-    m = re.match(r"^(STAT|PERF)\s+(.*)$", line)
+    m = re.match(r"^(STAT|PERF|DEVS|DEV)\s+(.*)$", line)
     if m:
         return (m.group(1).lower(), _kvs(m.group(2)))
     if line.startswith(("OK", "ERR")):
@@ -86,7 +86,7 @@ def show(kind: str, f: dict, fclk: float) -> str:
                 f"({fmt_us(f['thresh'], fclk)}) 内未观察到有效回复")
     if kind == "frame":
         return f"帧错误  {f['kind']}" + (f" fc={f['fc']}" if "fc" in f else "")
-    if kind in ("stat", "perf"):
+    if kind in ("stat", "perf", "devs", "dev"):
         return f"{kind.upper()}  " + " ".join(f"{k}={v}" for k, v in f.items())
     if kind in ("ok", "err", "cfg", "help", "banner", "result"):
         return f.get("text", "") if kind != "result" else \
@@ -123,21 +123,22 @@ def selftest() -> None:
         check("other" not in counts,
               f"{gf.name}: 有未识别行 {counts.get('other')}")
 
-    # normal：一问一答，resp=1728，统计 frames=2，RESULT PASS
+    # normal：一问一答，resp=1728，统计 frames=2，画像一台设备，RESULT PASS
     lines = (GOLDEN_DIR / "normal.txt").read_text(encoding="utf-8").splitlines()
     kinds = [parse_line(l)[0] for l in lines if l.strip()]
-    check(kinds == ["banner", "req", "rsp", "stat", "result"],
+    check(kinds == ["banner", "req", "rsp", "stat", "devs", "dev", "result"],
           f"normal 行序列 {kinds}")
     f = dict([parse_line(l)[1] for l in lines if l.startswith("RSP")][0])
     check(f.get("resp") == "1728", f"normal resp={f}")
     f = dict([parse_line(l)[1] for l in lines if l.startswith("STAT")][0])
     check(f.get("frames") == "2" and f.get("req") == "1"
           and f.get("rsp") == "1", f"normal STAT={f}")
-    # bad_crc：坏 CRC 帧 + 超时（不当成有效回复）
+    # bad_crc：坏 CRC 帧 + 超时（不当成有效回复），画像计入超时
     kinds = [parse_line(l)[0]
              for l in (GOLDEN_DIR / "bad_crc.txt").read_text(encoding="utf-8").splitlines()
              if l.strip()]
-    check(kinds == ["banner", "req", "frame", "timeout", "stat", "result"],
+    check(kinds == ["banner", "req", "frame", "timeout", "stat", "devs",
+                    "dev", "result"],
           f"bad_crc 行序列 {kinds}")
     # app（命令接口）：timeout 查设、OK/ERR、help
     lines = (GOLDEN_DIR / "app.txt").read_text(encoding="utf-8").splitlines()
