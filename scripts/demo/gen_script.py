@@ -171,6 +171,40 @@ def scenario_longframe() -> list:
     ]
 
 
+def scenario_longbad() -> list:
+    """单个被干扰的长坏帧：65 字节回复末字节翻转（帧长 ≥64 达到旧误配
+    判据阈值，但只有 1 个无效帧）——应判 crc_err + 坏回复不算有效回复
+    触发超时，不得触发 AUTOBAUD；后续问答正常。与 longframe（合法长帧）
+    互补，锁定「单个长坏帧不触发扫描」口径。"""
+    req30 = frame(bytes([0x01, 0x03, 0x00, 0x00, 0x00, 0x1E]))
+    data = b"".join(i.to_bytes(2, "big") for i in range(30))
+    bad = bytearray(frame(bytes([0x01, 0x03, 60]) + data))
+    assert len(bad) == 65
+    bad[-1] ^= 0xFF
+    return [
+        (OPEN_IDLE, req30), (RSP_DELAY, bytes(bad)),   # 长坏帧 → crc_err + 超时
+        (20 * CHAR, REQ), (RSP_DELAY, RSP),            # 后续问答正常
+    ]
+
+
+def scenario_baudbail(pairs: int = 70, post_pairs: int = 6) -> list:
+    """自动波特率兜底路径（与 baudscan 的主判据路径互补）：总线以非默认
+    位速率运行（--bitdiv 48 + tb +MONBITDIV=48，固件默认 32 开局误配），
+    且前段流量背靠背无间隔（idle=0）——垃圾字节间隔约 352 clk < 切帧
+    阈值 1232 clk，帧永不关闭，主判据的无效帧计数不增长，扫描只能由
+    「累计 ≥512 字节」兜底触发（指纹：AUTOBAUD scan start 前无任何
+    FRAME 行，与 baudscan 的 8 条 crc_err 相区别）。后段恢复正常间隔
+    问答供扫描窗锁定与锁定后诊断。帧数按误配速率下垃圾字节产出率
+    （约 1.5 倍）留足 512 字节触发量 + 逐候选观察窗流量。"""
+    seq = []
+    for i in range(pairs):
+        seq.append((OPEN_IDLE if i == 0 else 0, REQ))   # 背靠背：永不收帧
+    for _ in range(post_pairs):
+        seq.append((8 * CHAR, REQ))                     # 恢复间隔：供锁定
+        seq.append((RSP_DELAY, RSP))
+    return seq
+
+
 def scenario_baudscan() -> list:
     """自动波特率（误配开局自恢复）：总线以非默认位速率运行（本场景由
     Makefile 以 --bitdiv 48 生成脚本并给 tb 传 +MONBITDIV=48），固件按
@@ -198,6 +232,8 @@ SCENARIOS = {
     "offline": scenario_offline,
     "multidev": scenario_multidev,
     "longframe": scenario_longframe,
+    "longbad": scenario_longbad,
+    "baudbail": scenario_baudbail,
     "baudscan": scenario_baudscan,
 }
 

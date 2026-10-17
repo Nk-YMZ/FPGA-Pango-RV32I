@@ -65,9 +65,9 @@
   事件日志（log/logclear 命令查询导出，覆盖不静默）；故障类事件锁存
   gpio_out bit16 告警（alarm 查询/alarm off 或 clear 撤销；tb +GPIOEND
   只检测低 16 位，与魔数报码不冲突）
-- demo（`make demo`）：13 个总线场景（正常/坏 CRC/截断/异常回复/未支持
+- demo（`make demo`）：15 个总线场景（正常/坏 CRC/截断/异常回复/未支持
   功能码/无回复超时/广播/多设备分账/链路干扰突发/重试风暴/设备离线-恢复/
-  合法长帧/波特率误配自恢复）
+  合法长帧/单个长坏帧/波特率误配自恢复（主判据+兜底双路径））
   + 命令接口场景×2（基本命令 / 故障日志与告警），判定链 = 固件场景
   无关不变式自检 + UART 输出逐场景 golden 文本 diff + tb 核脚本发完；响应时间实测与
   理论推算逐拍一致。压力测量 `make stress`（位速率 × 帧间隔二维梯子，
@@ -120,7 +120,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（13 总线场景 + 命令接口场景×2；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
+| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（15 总线场景 + 命令接口场景×2；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
 | 应用压力测量 | stress 场景扫「位速率 × 帧间隔」二维梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
 
@@ -256,7 +256,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
    仿真一直用 bitdiv=32 高速率，9600 量级（50 MHz 下 bitdiv≈5208）的
    切帧/超时/收敛等长时间窗行为未实测（deploy.md 2.2 标注的缺口）。
    做法：复用 stress 的位速率三处一致机制（+MONBITDIV /
-   -DMON_BITDIV_CFG / --bitdiv），以 9600 量级位周期跑 13 个 demo 场景，
+   -DMON_BITDIV_CFG / --bitdiv），以 9600 量级位周期跑 15 个 demo 场景，
    判定核 RESULT: PASS + 各场景 STAT 分类计数不变（响应时间等数值随
    位速率变，不做逐字节 golden）；顺带把自动波特率候选表改为按 f_clk
    编译宏自动生成（上板适配前置）。结果入档并关闭 deploy.md 2.2 缺口
