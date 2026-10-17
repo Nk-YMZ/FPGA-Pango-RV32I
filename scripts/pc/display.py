@@ -8,7 +8,9 @@
   python3 display.py --selftest   # 无硬件自检（实解析 demo golden 文件）
 
 固件输出协议（sw/app/，整行 ASCII）：banner / REQ / RSP / EXR / TIMEOUT /
-FRAME / STAT / DEVS / DEV / PERF / OK / ERR / timeout=<n> / cmds: / RESULT。
+DIAG / FRAME / STAT / DEVS / DEV / PERF / OK / ERR / timeout=<n> / cmds: /
+RESULT。DIAG 为跨帧模式诊断行：DIAG link-interference / retry-storm /
+offline / recover（见 proto.h 文件头口径）。
 --fclk 用于把周期数换算成时间，须按 PDS 工程实际时钟设置（示例 50 MHz）。
 依赖 pyserial（仅实际开串口时需要）。
 Windows 要点：串口名用 --port COMx（如 COM3）；pyserial 用
@@ -44,6 +46,11 @@ def parse_line(line: str):
     m = re.match(r"^(REQ|RSP|EXR|TIMEOUT)\s+(.*)$", line)
     if m:
         return (m.group(1).lower(), _kvs(m.group(2)))
+    m = re.match(r"^DIAG\s+([\w-]+)(.*)$", line)
+    if m:
+        f = _kvs(m.group(2))
+        f["kind"] = m.group(1)
+        return ("diag", f)
     m = re.match(r"^FRAME\s+(\w+)(.*)$", line)
     if m:
         f = _kvs(m.group(2))
@@ -86,6 +93,20 @@ def show(kind: str, f: dict, fclk: float) -> str:
                 f"({fmt_us(f['thresh'], fclk)}) 内未观察到有效回复")
     if kind == "frame":
         return f"帧错误  {f['kind']}" + (f" fc={f['fc']}" if "fc" in f else "")
+    if kind == "diag":
+        names = {"link-interference": "链路干扰（连续 CRC 错误突发）",
+                 "retry-storm": "重试风暴",
+                 "offline": "设备离线", "recover": "设备恢复"}
+        s = f"诊断  {names.get(f['kind'], f['kind'])}"
+        if "addr" in f:
+            s += f"  addr={f['addr']}"
+        if "crc_burst" in f:
+            s += f"  连续坏帧={f['crc_burst']}"
+        if "retries" in f:
+            s += f"  连续重试={f['retries']}"
+        if "tout" in f:
+            s += f"  累计超时={f['tout']}"
+        return s
     if kind in ("stat", "perf", "devs", "dev"):
         return f"{kind.upper()}  " + " ".join(f"{k}={v}" for k, v in f.items())
     if kind in ("ok", "err", "cfg", "help", "banner", "result"):
@@ -140,6 +161,12 @@ def selftest() -> None:
     check(kinds == ["banner", "req", "frame", "timeout", "stat", "devs",
                     "dev", "result"],
           f"bad_crc 行序列 {kinds}")
+    # offline：离线→恢复→再离线的诊断序列（跨帧模式诊断）
+    diags = [parse_line(l)[1]["kind"]
+             for l in (GOLDEN_DIR / "offline.txt").read_text(encoding="utf-8").splitlines()
+             if l.startswith("DIAG")]
+    check(diags == ["offline", "recover", "offline"],
+          f"offline DIAG 序列 {diags}")
     # app（命令接口）：timeout 查设、OK/ERR、help
     lines = (GOLDEN_DIR / "app.txt").read_text(encoding="utf-8").splitlines()
     kinds = [parse_line(l)[0] for l in lines if l.strip()]

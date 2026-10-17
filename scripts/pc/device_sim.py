@@ -7,6 +7,8 @@
   bad_crc   回复帧 CRC 故意损坏
   delay     延迟回复（--delay-ms，配合分析仪超时阈值演示超时诊断）
   no_reply  收到请求后静默（演示「未观察到有效回复」）
+  flaky:N   前 N 次正常应答后转为静默（按设备故障注入：模拟设备应答
+            一段时间后离线；分析仪应报超时 + 设备离线事件 DIAG）
 
 用法：
   python3 device_sim.py --port /dev/ttyUSB1 [--baud 9600] [--addr 1]
@@ -31,16 +33,36 @@ from mbus import (REG_VALUES, build_fc03_request, build_fc03_response,
                   check_crc, selftest)
 
 
-def respond(mode: str, addr: int, delay_ms: float) -> bytes | None:
-    """按模式生成对一条请求的响应；返回 None 表示不回复"""
+def respond(mode: str, addr: int, delay_ms: float,
+            counters: dict | None = None) -> bytes | None:
+    """按模式生成对一条请求的响应；返回 None 表示不回复。
+    flaky:N 是有状态模式：counters 字典按地址记剩余正常应答次数"""
     if mode == "no_reply":
         return None
+    if mode.startswith("flaky:"):
+        if counters is None:
+            raise ValueError("flaky 模式需要 counters 状态字典")
+        if counters.setdefault(addr, int(mode.split(":", 1)[1])) <= 0:
+            return None                     # 额度用尽：转为静默（离线）
+        counters[addr] -= 1
     rsp = build_fc03_response(addr, REG_VALUES)
     if mode == "bad_crc":
         rsp = rsp[:-1] + bytes([rsp[-1] ^ 0xFF])
     if mode == "delay":
         time.sleep(delay_ms / 1000)
     return rsp
+
+
+def valid_mode(spec: str) -> bool:
+    """模式合法性：固定模式名，或 flaky:N（N 为非负整数）"""
+    if spec in ("normal", "bad_crc", "delay", "no_reply"):
+        return True
+    if spec.startswith("flaky:"):
+        try:
+            return int(spec.split(":", 1)[1]) >= 0
+        except ValueError:
+            return False
+    return False
 
 
 def should_respond(frame: bytes, addr: int) -> bool:
@@ -59,6 +81,17 @@ def device_selftest() -> None:
                                              0xFB, 0x55])
     assert respond("bad_crc", 1, 0)[-1] == 0x55 ^ 0xFF
     assert respond("no_reply", 1, 0) is None
+    # flaky:N：前 N 次正常应答（含本地址帧），之后静默；计数按地址独立
+    c = {}
+    assert respond("flaky:2", 7, 0, c)[0] == 7
+    assert respond("flaky:2", 7, 0, c) is not None
+    assert respond("flaky:2", 7, 0, c) is None
+    assert respond("flaky:2", 7, 0, c) is None
+    assert respond("flaky:1", 8, 0, c) is not None   # 地址计数互不影响
+    # 模式合法性判定
+    assert valid_mode("normal") and valid_mode("flaky:3")
+    assert not valid_mode("flaky:x") and not valid_mode("flaky:")
+    assert not valid_mode("flaky:-1") and not valid_mode("bogus")
     # CRC 静默口径：好帧响应、坏 CRC 帧静默、地址不匹配忽略
     good = build_fc03_request(1, 0, 2)
     assert should_respond(good, 1)
@@ -72,8 +105,8 @@ def main() -> None:
     ap.add_argument("--port", default="/dev/ttyUSB1")
     ap.add_argument("--baud", type=int, default=9600)
     ap.add_argument("--addr", type=int, default=1)
-    ap.add_argument("--mode", choices=["normal", "bad_crc", "delay",
-                                       "no_reply"], default="normal")
+    ap.add_argument("--mode", default="normal",
+                        help="normal / bad_crc / delay / no_reply / flaky:N")
     ap.add_argument("--dev", action="append", default=[], metavar="ADDR:MODE",
                         help="多设备实例，可重复（与 --addr/--mode 二选一）")
     ap.add_argument("--delay-ms", type=float, default=50.0)
@@ -87,15 +120,17 @@ def main() -> None:
     import serial    # 延迟导入：selftest 不依赖 pyserial
 
     # 设备表：地址 → 模式（--dev 优先，否则单设备 --addr/--mode）
-    modes = {"normal", "bad_crc", "delay", "no_reply"}
     if args.dev:
         devs = {}
         for spec in args.dev:
             a, _, m = spec.partition(":")
-            if m not in modes:
-                ap.error(f"--dev {spec}: 模式须为 {'/'.join(sorted(modes))}")
+            if not valid_mode(m) or not a.isdigit():
+                ap.error(f"--dev {spec}: 模式须为 normal/bad_crc/delay/"
+                         f"no_reply/flaky:N")
             devs[int(a)] = m
     else:
+        if not valid_mode(args.mode):
+            ap.error(f"--mode {args.mode}: 非法模式")
         devs = {args.addr: args.mode}
 
     ser = serial.Serial(args.port, args.baud, bytesize=8, parity="N",
@@ -108,6 +143,7 @@ def main() -> None:
     buf = b""
     last_rx = 0.0
     n = 0
+    flaky_state = {}            # flaky:N 各地址剩余正常应答次数
     try:
         while True:
             chunk = ser.read(64)
@@ -128,7 +164,8 @@ def main() -> None:
                     # 真实从站对 CRC 错误的请求静默（不回任何字节）
                     print(f"#{n} rx={frame.hex(' ')} | CRC 错误，静默")
                 else:
-                    rsp = respond(devs[addr], addr, args.delay_ms)
+                    rsp = respond(devs[addr], addr, args.delay_ms,
+                                  flaky_state)
                     if rsp is not None:
                         ser.write(rsp)
                         ser.flush()

@@ -95,6 +95,41 @@ def scenario_stress(pairs: int, gap: int) -> list:
     return seq
 
 
+def scenario_interference() -> list:
+    """链路干扰：突发期间连续 3 帧（主站重试的请求）在传输中被损坏 →
+    固件判链路干扰并上报一次（单帧抖动不报）；突发过后通信恢复正常。
+    损坏帧的地址域不可信：只计总线级 crc_err，不入设备账、不打断挂起。"""
+    bad = bytearray(REQ)
+    bad[-1] ^= 0xFF
+    return [
+        (OPEN_IDLE, REQ),
+        (RSP_DELAY, bytes(bad)), (RSP_DELAY, bytes(bad)),
+        (RSP_DELAY, bytes(bad)),
+        (RSP_DELAY, REQ), (RSP_DELAY, RSP),
+    ]
+
+
+def scenario_retrystorm() -> list:
+    """重试风暴：主站对同一请求连续超时重发（设备始终无应答），第 3 次
+    重试（总第 4 帧）上报重试风暴一次（episode 去重，后续重试不重复报）。
+    间隔 20 字符 > 超时阈值（16）：每次重发前先由 tick 墙钟报超时。"""
+    return [(OPEN_IDLE, REQ)] + [(20 * CHAR, REQ)] * 3
+
+
+def scenario_offline() -> list:
+    """设备离线与恢复：05 号设备正常应答建立记录后转为静默——超时即上报
+    离线；随后恢复应答上报恢复事件；再次静默再次上报离线（标志复位后
+    可重复触发）。从未应答过的设备超时不报离线（timeout 场景已覆盖）。"""
+    req5 = frame(bytes([0x05, 0x03, 0x00, 0x00, 0x00, 0x02]))
+    rsp5 = frame(bytes([0x05, 0x03, 0x04, 0x00, 0x64, 0x00, 0xc8]))
+    return [
+        (OPEN_IDLE, req5), (RSP_DELAY, rsp5),     # 建立应答记录
+        (RSP_DELAY, req5),                        # 静默 → 16 字符后超时+离线
+        (20 * CHAR, req5), (RSP_DELAY, rsp5),     # 恢复 → 上报恢复
+        (RSP_DELAY, req5),                        # 再次静默 → 超时+离线
+    ]
+
+
 def scenario_multidev() -> list:
     """多设备分账：四台从站共线——01 两轮正常问答（第二轮回复延迟 8
     字符，拉开响应时间分布）、02 正常（不同寄存器值）、03 异常回复
@@ -126,6 +161,9 @@ SCENARIOS = {
     "unsupported_fc": scenario_unsupported_fc,
     "timeout": scenario_timeout,
     "broadcast": scenario_broadcast,
+    "interference": scenario_interference,
+    "retrystorm": scenario_retrystorm,
+    "offline": scenario_offline,
     "multidev": scenario_multidev,
 }
 

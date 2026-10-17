@@ -1,0 +1,16 @@
+app-demo: Modbus RTU 监听可行性 demo
+REQ addr=05 start=0000 nreg=2
+RSP addr=05 data=0064,00c8 resp=1728cyc
+REQ addr=05 start=0000 nreg=2
+TIMEOUT addr=05 thresh=5632cyc no-response
+DIAG offline addr=05 tout=1
+REQ addr=05 start=0000 nreg=2
+RSP addr=05 data=0064,00c8 resp=1728cyc
+DIAG recover addr=05
+REQ addr=05 start=0000 nreg=2
+TIMEOUT addr=05 thresh=5632cyc no-response
+DIAG offline addr=05 tout=2
+STAT frames=6 req=4 rsp=2 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=2 resp=1728 ovf=0
+DEVS n=1 ovf=0
+DEV addr=05 req=4 rsp=2 exr=0 tout=2 rn=2 rlast=1728 rmin=1728 rmax=1728
+RESULT: PASS

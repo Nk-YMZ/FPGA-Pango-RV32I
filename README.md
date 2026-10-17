@@ -42,7 +42,7 @@ make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
 make randtrap # 同步陷阱随机化（注入 ecall/非法指令/非对齐，Sail 裁决陷入现场）
 make randirq # 中断透明性随机化（中断注入，三轮签名一致 + 计数断言）
 make bench   # CoreMark 跑分（周期数，逐次可比）
-make demo    # 应用 demo：总线监听多场景闭环（7 个总线场景 golden diff + 命令接口测试）
+make demo    # 应用 demo：总线监听多场景闭环（11 个总线场景 golden diff + 命令接口测试）
 make stress  # 应用压力测量：扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint

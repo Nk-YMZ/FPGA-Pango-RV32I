@@ -130,7 +130,7 @@ bench: $(SOC_TB)
 # 经 GPIO 魔数报码（中断驱动固件配置了 mtvec 无停机概念，+GPIOEND 以魔数
 # 写入为结束信号并核对其值 + tb 核脚本发完），同时 UART 输出经 +UARTLOG
 # 落盘后与 scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
-DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast multidev
+DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast multidev interference retrystorm offline
 DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCENARIOS)))
 
 demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
