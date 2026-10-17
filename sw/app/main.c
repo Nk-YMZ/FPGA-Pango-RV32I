@@ -194,12 +194,18 @@ static void tick_process(void)
 
 /* ---- 自动波特率（免配置接入与误配自恢复） ----
  * 不做开机常开扫描：总线空闲时无流量可锁，且开局扫描会白白吃掉首段
- * 流量。固件按当前 BITDIV 正常运行，后台统计「自上一个 CRC 有效帧
- * 以来喂入的字节数」：BITDIV 与总线波特率不符时接收器只产出垃圾
- * 字节、有效帧归零，字节计数超阈（64）即判定误配并进入扫描。阈值
- * 按字节而非坏帧数计：误配方向不同垃圾成帧形态不同（过快→连绵超
- * 长帧、过慢→碎帧），字节数对两种形态都敏感。既有 demo 场景最长
- * 连续无效流量仅 24 字节（interference 3 帧），阈值 64 不会误触发。
+ * 流量。固件按当前 BITDIV 正常运行，后台做误配检测，判据两级：
+ * 主判据——连续无效帧（关闭时判 crc_err/len_err）≥2 且自上一个 CRC
+ * 有效帧以来喂入字节 ≥64；有效帧关闭即两个基准同时清零。无效帧
+ * 按「关闭」计而非按字节计：≥64 字节的合法长帧（如 FC03 读 30 个
+ * 寄存器的 65 字节回复）在传输途中不触发（帧未关闭不计数，关闭时
+ * 是有效帧立即清零），单个被干扰的长坏帧（仅 1 个无效帧）也不触发。
+ * 兜底——累计字节 ≥512（2×协议最长帧 MAX_FRAME=256）无条件触发：
+ * 覆盖「固件位周期偏快、垃圾字节连绵且间隔始终低于切帧阈值、永不
+ * 收帧」的方向（主判据的无效帧计数在该形态下不增长）。字节阈值
+ * 保留的意义：误配方向不同垃圾成帧形态不同（过快→连绵超长帧、
+ * 过慢→碎帧），字节数对两种形态都敏感。既有 demo 场景最长连续
+ * 无效流量仅 24 字节（interference 3 帧），两个阈值均不会误触发。
  * 扫描：候选位周期表轮询——en=0 窗口写 BITDIV、clear、重新使能，
  * 开 48 字符观察窗，窗内 CRC 有效帧 ≥2 即锁定（单帧假阳性 1/65536，
  * 2 帧足够稳健；CRC 复用 proto 层同一实现）。窗满未锁定换下一候选，
@@ -210,7 +216,9 @@ static void tick_process(void)
  * 同样暂停），MTI 节拍仅作观察窗推进的唤醒源。
  * 候选表是仿真取值（含默认 32 与 baudscan 场景的 48）；上板应按实际
  * 时钟与目标波特率集（115200~9600 等）重新生成（deploy.md 3.4）。 */
-#define BAUD_TRIG_BYTES 64u     /* 误配触发：自上一有效帧起收满此字节数 */
+#define BAUD_TRIG_BYTES 64u     /* 主判据：自上一有效帧起累计字节阈值 */
+#define BAUD_TRIG_FRAMES 2u     /* 主判据：连续无效帧数阈值 */
+#define BAUD_BAIL_BYTES  512u   /* 兜底：2×协议最长帧，永不收帧形态无条件触发 */
 #define SCAN_WIN_CHARS  48u     /* 每候选观察窗（字符时间） */
 #define SCAN_FMAX       32u     /* 扫描验证器帧缓冲上限（超长帧判无效） */
 static const uint16_t baud_cands[] = {16, 24, 32, 48, 64, 96};
@@ -224,6 +232,7 @@ static int      scanning;           /* 扫描进行中 */
 static uint32_t cand_idx;           /* 当前候选下标 */
 static uint32_t win_start;          /* 本候选观察窗起点（MON_NOW） */
 static uint32_t valid_prev;         /* 有效帧计数快照（误配检测） */
+static uint32_t invalid_prev;       /* 无效帧计数快照（连续无效帧判定） */
 static uint32_t feed_n_at_valid;    /* 上一有效帧时的字节喂入计数 */
 static uint8_t  scan_buf[SCAN_FMAX];
 static uint32_t scan_flen, scan_last_ts, scan_valid;
@@ -281,6 +290,7 @@ static void scan_lock(void)
     converge = bitdiv * 11u * 24u;
 #endif
     valid_prev = 0;
+    invalid_prev = 0;
     feed_n_at_valid = perf_feed_n;
     app_put_str("AUTOBAUD lock bitdiv=");
     app_put_dec(bitdiv);
@@ -309,15 +319,22 @@ static void scan_process(void)
 }
 
 /* 误配检测（正常运行期主循环调用）：有效帧（CRC 通过：正常/异常回复、
-   请求、unsupported）刷新快照；否则字节持续累积超阈即触发扫描 */
+   请求、unsupported）关闭即刷新快照清零重计；否则连续无效帧与累计
+   字节双超阈（主判据），或累计字节超兜底阈值（垃圾连绵永不收帧），
+   即触发扫描 */
 static void baud_detect(void)
 {
     const proto_stats_t *s = proto_stats();
     uint32_t valid = s->requests + s->responses + s->exc_rsp + s->unsupported;
+    uint32_t invalid = s->crc_err + s->len_err;
+    uint32_t nbytes = perf_feed_n - feed_n_at_valid;
     if (valid != valid_prev) {
         valid_prev = valid;
+        invalid_prev = invalid;
         feed_n_at_valid = perf_feed_n;
-    } else if (perf_feed_n - feed_n_at_valid >= BAUD_TRIG_BYTES) {
+    } else if (nbytes >= BAUD_BAIL_BYTES
+               || (nbytes >= BAUD_TRIG_BYTES
+                   && invalid - invalid_prev >= BAUD_TRIG_FRAMES)) {
         scanning = 1;
         cand_idx = 0;
         app_put_str("AUTOBAUD scan start\n");
@@ -586,6 +603,11 @@ static void cmd_exec(void)
            事件日志保留可追溯（清空用 logclear） */
         perf_feed_n = perf_feed_cyc = perf_frame_cyc = perf_frame_max = 0;
         uart_wait_cyc = 0;
+        /* 误配检测基准同步重置：perf_feed_n 已清零而 feed_n_at_valid 保留
+           旧值时减法下溢会立即误触发扫描（扫描锁定后 clear 可达） */
+        valid_prev = 0;
+        invalid_prev = 0;
+        feed_n_at_valid = perf_feed_n;
         GPIO_OUT = GPIO_OUT & ~GPIO_ALARM;
         app_put_str("OK clear\n");
     } else if (streq(cmd_buf, "timeout")) {

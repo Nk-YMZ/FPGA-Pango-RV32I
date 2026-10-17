@@ -153,6 +153,20 @@ def scenario_multidev() -> list:
     ]
 
 
+def scenario_longframe() -> list:
+    """合法长帧：FC03 读 30 个保持寄存器 → 65 字节回复（帧长大于旧误配
+    判据的 64 字节阈值，是自动波特率误触发的回归场景）：传输途中与关闭
+    后均不得触发 AUTOBAUD 扫描；后接一对正常问答确认诊断继续正常。"""
+    req30 = frame(bytes([0x01, 0x03, 0x00, 0x00, 0x00, 0x1E]))
+    data = b"".join(i.to_bytes(2, "big") for i in range(30))
+    rsp30 = frame(bytes([0x01, 0x03, 60]) + data)
+    assert len(rsp30) == 65
+    return [
+        (OPEN_IDLE, req30), (RSP_DELAY, rsp30),
+        (RSP_DELAY, REQ), (RSP_DELAY, RSP),
+    ]
+
+
 def scenario_baudscan() -> list:
     """自动波特率（误配开局自恢复）：总线以非默认位速率运行（本场景由
     Makefile 以 --bitdiv 48 生成脚本并给 tb 传 +MONBITDIV=48），固件按
@@ -179,6 +193,7 @@ SCENARIOS = {
     "retrystorm": scenario_retrystorm,
     "offline": scenario_offline,
     "multidev": scenario_multidev,
+    "longframe": scenario_longframe,
     "baudscan": scenario_baudscan,
 }
 
