@@ -170,7 +170,7 @@ MEI 聚合（irq_en 已由固件启用：中断驱动取数，见 6.2 节）。
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
 | 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 scripts/rtests/run_rtests.sh 头注释 | `make rtests` |
-| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
+| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 + proto 宿主单元测试（18 用例，宿主 gcc + ASan/UBSan，覆盖场景 golden 难到达的解析边缘形态） | `make test` |
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
@@ -445,7 +445,8 @@ demo 与压力测试过程检出并固化了三个真实设计要点：
   三分支一致（真实 Modbus 广播无回复，addr=0 的回复只可能是伪造或
   损坏流量；broadcast 场景附伪造 addr=0 回复锁定此口径：全局统计
   如实计数，画像不出现 addr=00）；
-  8 槽按地址首次出现顺序分配，表满新地址计入 DEVS ovf
+  8 槽按地址首次出现顺序分配，表满时建账失败计 DEVS ovf（按失败次数，
+  同一新地址的请求与回复各计一次——表满无处记录哪些地址溢出过）
 - **同长帧方向歧义**：FC03 请求定长 8 字节，与 byte count 为奇数
   （非法值）的回复同长，固件优先按请求解析；合法回复字节数必为偶数，
   真实流量无此形态

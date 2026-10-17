@@ -3,7 +3,7 @@
 #   make unit    运行模块级单元测试
 #   make smoke   核心冒烟测试（含在 make test 中）
 #   make integ   编译测试程序并运行 SoC 集成仿真
-#   make test    全部自研测试（单元 + 冒烟 + 集成）
+#   make test    全部自研测试（单元 + 冒烟 + 集成 + proto 宿主单元测试）
 #   make lint    Verilator lint
 #   make wave    带波形运行集成测试（生成 build/*.fst，可用 gtkwave 查看）
 
@@ -24,9 +24,9 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app stress
+.PHONY: test unit smoke integ prototest lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app stress
 
-test: unit smoke integ
+test: unit smoke integ prototest
 
 # ---------------- 单元测试 ----------------
 unit:
@@ -39,6 +39,20 @@ unit:
 	  $(BUILD)/obj_$$u/tb_$$u || exit 1; \
 	done
 	@echo "===== 单元测试全部通过 ====="
+
+# ---------------- proto 宿主单元测试（应用解析核心，待办 5） ----------------
+# proto.c 纯 C 不碰 MMIO：宿主 gcc 编译 + 测试驱动直接喂带时间戳的记录，
+# 覆盖场景端到端 golden 难到达的边缘形态（长帧/overlong/孤儿回复/addr=0
+# 伪造帧/超时双路径/静默条件/跨帧诊断/画像表溢出等）；开 ASan+UBSan，
+# overlong 用例同时监督帧缓冲区越界。与 RTL 仿真无关，秒级完成
+HOSTCC ?= gcc
+$(BUILD)/proto_host_test: sw/app/proto.c sw/app/proto.h sw/app/proto_host_test.c
+	@mkdir -p $(BUILD)
+	$(HOSTCC) -std=c99 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+	    -Isw/app sw/app/proto.c sw/app/proto_host_test.c -o $@
+
+prototest: $(BUILD)/proto_host_test
+	$(BUILD)/proto_host_test
 
 # ---------------- 核心冒烟测试 ----------------
 smoke: $(BUILD)/test_core_smoke.hex

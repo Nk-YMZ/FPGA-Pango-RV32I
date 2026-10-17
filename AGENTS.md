@@ -116,7 +116,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 |---|---|---|
 | 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
 | 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释 | `make rtests` |
-| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 | `make test` |
+| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 + proto 宿主单元测试（18 用例，宿主 gcc + ASan/UBSan，覆盖长帧/overlong/孤儿回复/addr=0 伪造帧/超时双路径等场景 golden 难到达的边缘形态） | `make test` |
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
@@ -245,13 +245,10 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 （编号说明：原待办 1「自动波特率长帧误触发」、待办 2「proto 口径对齐
 两小修」、待办 3「device_sim 高速率切帧」、待办 4「测试层加固」、
 待办 7「PC 脚本 pty 冒烟」已完成（3/7 合并为迭代 C 一次提交），
+待办 5「proto 宿主单元测试」已完成，
 成果见「现状」与 git log；以下保留原始编号以便与既有文档交叉引用
 对账）
 
-5. **proto 宿主单元测试**（新立项，系统性补强）：proto.c 是纯 C 不碰
-   MMIO，可用宿主 gcc 编译 + 测试驱动直接喂记录；把长帧、孤儿回复、
-   addr=0 伪造帧等边缘形态做成快速单元测试——问题 1 能存活至今正是
-   因为只靠场景端到端 golden 存在盲区。挂入 make test 或独立目标
 6. **真实波特率量级仿真复验**（上板前验证补强，纯仓库内闭环）：现有
    仿真一直用 bitdiv=32 高速率，9600 量级（50 MHz 下 bitdiv≈5208）的
    切帧/超时/收敛等长时间窗行为未实测（deploy.md 2.2 标注的缺口）。

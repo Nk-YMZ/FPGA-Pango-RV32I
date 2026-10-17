@@ -86,8 +86,9 @@ void app_log_event(uint32_t ts, uint8_t type, uint8_t addr, uint32_t aux);
 /* ---- 设备画像（多设备分账） ----
  * 只给 CRC 校验通过且可解析的 FC03 帧建账：crc_err/len_err 帧的地址域
  * 不可信、unsupported 帧方向未知，均只计总线级不归因设备；广播（addr=0）
- * 不建账。槽位按地址首次出现顺序分配，表满未能建账的新地址计入
- * proto_dev_ovf（不静默丢弃）。 */
+ * 不建账。槽位按地址首次出现顺序分配，表满时建账失败计 proto_dev_ovf
+ *（按失败次数而非去重地址数——表满无处记录哪些地址溢出过，同一新
+ * 地址的请求与回复各计一次；不静默丢弃）。 */
 #define PROTO_MAX_DEV 8
 
 typedef struct {
@@ -103,7 +104,8 @@ typedef struct {
     uint32_t resp_max;
 } proto_dev_t;
 
-/* 已建账设备数 / 表满溢出计数；proto_dev 按首次出现顺序取设备（越界返 0） */
+/* 已建账设备数 / 表满建账失败计数（口径见上）；proto_dev 按首次出现
+ * 顺序取设备（越界返 0） */
 uint32_t proto_dev_count(void);
 uint32_t proto_dev_ovf(void);
 const proto_dev_t *proto_dev(uint32_t idx);
