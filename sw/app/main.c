@@ -5,16 +5,21 @@
  * 配对/超时诊断）→ UART 输出。取数（本文件的 MMIO 访问）与处理
  *（proto.c）严格分离。
  *
- * 中断驱动取数（应用待办 2，由原轮询形态升级）：
- * - MEI 电平聚合：uart_mon FIFO 非空 → handler 弹读喂解析，弹空中断自
- *   撤销；结果 UART RX 同在聚合内——连续运行形态喂命令接口，DEMO 形态
- *   无命令接口，读掉撤销 rx_valid 即可（tb 全局激励会送固定字节 0xA5）。
- * - MTI 周期节拍：总线静默时没有字节事件，切帧收尾与超时判定改由
- *   mtimer 节拍驱动 proto_tick；节拍周期 = 切帧阈值之半，收尾额外延迟
- *   小于半个切帧阈值。proto_tick 的「静默超阈」条件保证传输中的帧不会
- *   被节拍误切（与轮询形态同一前提，见 proto.c 注释）。
- * - 主循环 WFI 真睡眠：处理全在 handler，总线空闲时 CPU 零算力消耗；
- *   DEMO 形态主循环只剩唤醒后的时间窗收敛判定。
+ * 取数架构（事件缓冲：报告打印已移出中断关键路径）：
+ * - MEI 电平聚合：uart_mon FIFO 非空 → handler 只把记录搬进事件环形
+ *   缓冲（每字节约 50 clk 即返回），不在 handler 内解析打印；结果
+ *   UART RX 同在聚合内——连续运行形态字节入命令缓冲，DEMO 形态无
+ *   命令接口，读掉撤销 rx_valid 即可（tb 全局激励会送固定字节 0xA5）。
+ *   动机：handler 内同步打印曾使处理速率（551 clk/字节）低于总线速率
+ *   （352 clk/字节），密集流量期单次 drain 长达 41k clk 饿死 MTI 节拍。
+ * - 主循环消费：WFI 唤醒后排空事件缓冲喂 proto（解析与报告打印全在
+ *   主循环上下文，可被中断，字节持续入队不丢）；节拍标志置位且队列
+ *   追平（缓冲空 + FIFO 空）时调 proto_tick；命令缓冲逐字节喂命令
+ *   接口。proto 层零改动——feed/tick 的调用者对解析逻辑不可见。
+ * - MTI 周期节拍：总线静默时没有字节事件，切帧收尾与超时判定由
+ *   mtimer 节拍驱动（handler 只重排下一拍 + 置标志）；节拍周期 =
+ *   切帧阈值之半。proto_tick 的「静默超阈」条件保证传输中的帧不会
+ *   被节拍误切（前提见 proto.c 注释）。
  * - 结束机制：mtvec 配置后 ecall/ebreak 走标准陷入而不再停机，DEMO
  *   形态的结束信号改为 GPIO 魔数（tb +GPIOEND 检测写入并核对）。
  *
@@ -104,26 +109,58 @@ static void check(int cond)
     if (!cond) fails++;
 }
 
-/* ---- 取数层（中断 handler 上下文） ----
- * last_act 记录最后一次字节活动的总线时刻，供 demo 形态主循环时间窗收敛
- * 判定用（handler 写、主循环读，volatile）。
- * 性能口径：frames 计数变化的那次 feed/tick 调用即为「帧关闭处理」
- * （切帧 + CRC + 解析 + 报告打印），其耗时逐帧累计并记最大值 */
+/* ---- 事件缓冲（handler 与主循环的唯一交接） ----
+ * 报告打印（约 5.3k clk/帧，其中 UART 阻塞占约九成）不能留在 handler：
+ * 打印期间字节积压在 uart_mon FIFO，突发流量下单次 drain 实测长达
+ * 41k clk，MTI 节拍被饿死。handler 现只做搬运（每字节约 50 clk），
+ * 解析与打印改由主循环排空缓冲时进行（主循环可被中断，handler 持续
+ * 补队不丢字节）。缓冲 128 条：覆盖实测最差突发（41k clk ≈ 116 字节
+ * @352 clk/字节）；满则丢记录计 ev_ovf——与 uart_mon OVF 同一哲学：
+ * 明确报溢出，不静默错位；持续溢出说明处理跟不上总线（瓶颈是打印，
+ * 见 design.md 7.1）。
+ * last_act 记录最后一次字节活动的总线时刻，供 demo 形态时间窗收敛
+ * 判定用（handler 写、主循环读，volatile）。 */
+#define EV_SIZE 128u                /* 须为 2 的幂 */
+static volatile uint32_t ev_head, ev_tail;
+static uint32_t          ev_ts[EV_SIZE];
+static uint32_t          ev_d[EV_SIZE];
+static volatile uint32_t ev_ovf;
 static volatile uint32_t last_act;
+static volatile uint32_t tick_flag;             /* MTI 节拍待处理标志 */
 static uint32_t tick_period;                    /* MTI 静默收尾节拍（clk） */
 static uint32_t perf_feed_n, perf_feed_cyc;     /* 逐字节采集开销 */
 static uint32_t perf_frame_cyc, perf_frame_max; /* 帧处理累计/最差（含打印） */
 
-/* MEI：弹空 uart_mon FIFO 喂 proto。电平中断，弹空即自撤销；
+/* MEI：弹空 uart_mon FIFO 搬入事件缓冲。电平中断，弹空即自撤销；
  * 取数期间新到的字节在 mret 后再次触发，不会丢 */
 static void mon_drain(void)
 {
     while (MON_STATUS & 0x1u) {
         uint32_t ts = MON_TSTAMP;       /* 先戳后数，配成一条 */
         uint32_t d  = MON_DATA;
+        uint32_t next = (ev_head + 1u) & (EV_SIZE - 1u);
+        last_act = ts;
+        if (next == ev_tail) {          /* 缓冲满：丢弃并报数（防御路径） */
+            ev_ovf++;
+            continue;
+        }
+        ev_ts[ev_head] = ts;
+        ev_d[ev_head]  = d;
+        ev_head = next;
+    }
+}
+
+/* 主循环：排空事件缓冲喂 proto。
+ * 性能口径：frames 计数变化的那次 feed/tick 调用即为「帧关闭处理」
+ * （切帧 + CRC + 解析 + 报告打印），其耗时逐帧累计并记最大值 */
+static void ev_process(void)
+{
+    while (ev_tail != ev_head) {
+        uint32_t ts = ev_ts[ev_tail];
+        uint32_t d  = ev_d[ev_tail];
+        ev_tail = (ev_tail + 1u) & (EV_SIZE - 1u);
         uint32_t c0 = CCTR_LO;
         uint32_t f0 = proto_stats()->frames;
-        last_act = ts;
         proto_feed(ts, (uint8_t)(d & 0xFFu), (uint8_t)((d >> 8) & 0x3u));
         uint32_t dt = CCTR_LO - c0;
         perf_feed_n++;
@@ -135,16 +172,21 @@ static void mon_drain(void)
     }
 }
 
-/* MTI 节拍：总线静默期的帧收尾与超时检查（无字节事件可依赖）。
- * TIMEOUT 上报发生在本函数：频次低，其报告打印不单独计（口径：帧处理
- * 统计仅含帧关闭调用） */
-static void mon_tick(void)
+/* 主循环：节拍标志置位且队列已追平（事件缓冲空 + uart_mon FIFO 空）时
+ * 驱动 proto_tick——proto_tick 只能在已追平硬件队列时调用（墙钟切帧
+ * 前提，见 proto.h）。TIMEOUT 上报发生在 proto_tick：频次低，其报告
+ * 打印不单独计（口径：帧处理统计仅含帧关闭调用） */
+static void tick_process(void)
 {
-    uint32_t f0 = proto_stats()->frames;
-    uint32_t c0 = CCTR_LO;
+    uint32_t f0, c0, dt;
+    if (!tick_flag) return;
+    if (ev_tail != ev_head || (MON_STATUS & 0x1u)) return;  /* 未追平顺延 */
+    tick_flag = 0;
+    f0 = proto_stats()->frames;
+    c0 = CCTR_LO;
     proto_tick(MON_NOW);
     if (proto_stats()->frames != f0) {
-        uint32_t dt = CCTR_LO - c0;
+        dt = CCTR_LO - c0;
         perf_frame_cyc += dt;
         if (dt > perf_frame_max) perf_frame_max = dt;
     }
@@ -162,6 +204,13 @@ static void mtimer_next_tick(void)
     MTIMECMP_LO = nlo;
     MTIMECMP_HI = nhi;
 }
+
+/* 命令字节缓冲：RX 字节由 MEI handler 入队，主循环喂 cmd_feed——命令
+   响应的打印同样不能占 handler。满则丢（命令接口本就要求等响应再发
+   下一条，见 design.md 6.4 口径） */
+#define CMDQ_SIZE 32u             /* 须为 2 的幂；命令行长上限 CMD_MAX=24 */
+static volatile uint32_t cmdq_head, cmdq_tail;
+static char              cmdq[CMDQ_SIZE];
 
 static void cmd_feed(char c);   /* 连续运行形态命令接口，见后 */
 
@@ -181,13 +230,20 @@ void trap_handler(void)
 #ifdef DEMO_MODE
                 (void)c;    /* demo 无命令接口：读掉撤销 rx_valid（tb 送 0xA5） */
 #else
-                cmd_feed(c);
+                {           /* 入命令缓冲，主循环喂命令接口 */
+                    uint32_t next = (cmdq_head + 1u) & (CMDQ_SIZE - 1u);
+                    if (next != cmdq_tail) {
+                        cmdq[cmdq_head] = c;
+                        cmdq_head = next;
+                    }
+                }
 #endif
             }
             break;
-        case 7:                         /* MTI：静默收尾节拍 */
+        case 7:                         /* MTI：重排下一拍 + 置标志，
+                                           实际 tick 由主循环在队列追平后执行 */
             mtimer_next_tick();
-            mon_tick();
+            tick_flag = 1;
             break;
         case 3:                         /* MSI：本应用不用，清 MSIP 防御 */
             __asm__ volatile("csrc mip, %0" :: "r"(1u << 3));
@@ -285,6 +341,8 @@ static void print_perf(void)
     app_put_dec(perf_frame_max);
     app_put_str(" uart_wait=");
     app_put_dec(uart_wait_cyc);
+    app_put_str(" ev_ovf=");
+    app_put_dec(ev_ovf);
     app_put_str("\n");
 }
 
@@ -374,6 +432,18 @@ static void cmd_feed(char c)
     else { cmd_len = 0; app_put_str("ERR too-long\n"); }
 }
 
+#ifndef DEMO_MODE
+/* 主循环：排空命令缓冲喂命令接口（响应打印在主循环上下文，可被中断） */
+static void cmdq_process(void)
+{
+    while (cmdq_tail != cmdq_head) {
+        char c = cmdq[cmdq_tail];
+        cmdq_tail = (cmdq_tail + 1u) & (CMDQ_SIZE - 1u);
+        cmd_feed(c);
+    }
+}
+#endif
+
 int main(void)
 {
     /* 初始化采集外设：先 clear 清干净，再使能并开 FIFO 非空中断。
@@ -408,19 +478,36 @@ int main(void)
     __asm__ volatile("csrw mie, %0" :: "r"(MIE_MEIE | MIE_MTIE));
     __asm__ volatile("csrs mstatus, %0" :: "r"(MSTATUS_MIE));
 
+    /* 主循环（两种形态同一骨架）：排空事件缓冲喂 proto → 队列追平后
+       执行待处理节拍 →（连续形态）排空命令缓冲；无活可干时 WFI 真睡眠。
+       睡眠前关中断复检：「检查无活」与「入睡」之间到达的事件由 WFI 有
+       pending 即唤醒（不看 MIE）兜底，醒来开中断让 handler 补队后回到
+       循环处理，不丢唤醒 */
 #ifdef DEMO_MODE
-    /* 仿真自检形态：时间窗收敛——proto 无未决、FIFO 已追平、且最后总线
-       活动后再空闲足够长（保证末帧已由墙钟收尾、挂起请求已超时上报），
-       即认为场景流量结束。收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5)。
-       WFI 每拍节拍/每字节唤醒一次，处理在 handler，此处只判收敛 */
+    /* 仿真自检形态：时间窗收敛——proto 无未决、事件缓冲与 FIFO 均已追平、
+       且最后总线活动后再空闲足够长（保证末帧已由墙钟收尾、挂起请求已
+       超时上报），即认为场景流量结束。
+       收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5) */
     const uint32_t converge = bitdiv * 11u * 24u;
+#endif
     for (;;) {
-        __asm__ volatile("wfi");
-        if (proto_stats()->frames >= 1 && !proto_pending()
-            && !(MON_STATUS & 0x1u)
+        ev_process();
+        tick_process();
+#ifndef DEMO_MODE
+        cmdq_process();
+#endif
+#ifdef DEMO_MODE
+        if (ev_tail == ev_head && proto_stats()->frames >= 1
+            && !proto_pending() && !(MON_STATUS & 0x1u)
             && (MON_NOW - last_act) > converge)
             break;
+#endif
+        __asm__ volatile("csrc mstatus, %0" :: "r"(MSTATUS_MIE));
+        if (ev_tail == ev_head && !tick_flag && cmdq_tail == cmdq_head)
+            __asm__ volatile("wfi");
+        __asm__ volatile("csrs mstatus, %0" :: "r"(MSTATUS_MIE));
     }
+#ifdef DEMO_MODE
     /* 收敛后处理已穷尽，关中断避免自检/收尾打印被节拍打断 */
     __asm__ volatile("csrc mstatus, %0" :: "r"(MSTATUS_MIE));
 
@@ -433,6 +520,7 @@ int main(void)
                      + s->crc_err + s->len_err + s->unsupported);
     check(s->frame_err == 0);       /* 发生器激励无帧错误 */
     check(MON_OVF == 0);            /* 功能场景速率远低于溢出临界点 */
+    check(ev_ovf == 0);             /* 事件缓冲溢出同为零 */
     check(s->responses + s->exc_rsp == 0 || s->resp_cycles > 0);
     uint32_t sum_req = 0, sum_rsp = 0, sum_exr = 0, sum_tout = 0;
     for (uint32_t i = 0; i < proto_dev_count(); i++) {
@@ -452,9 +540,5 @@ int main(void)
     print_perf();
     finish(fails);
     return fails;   // 不返回（crt0 约定 main 返回值为失败计数）
-#else
-    /* 连续运行形态（上板形态）：主循环休眠，采集/命令/收尾全在中断
-       handler（MEI 取数与命令、MTI 静默收尾节拍） */
-    for (;;) __asm__ volatile("wfi");
 #endif
 }
