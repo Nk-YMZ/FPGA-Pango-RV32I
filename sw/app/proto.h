@@ -56,6 +56,10 @@ void     proto_set_timeout(uint32_t t);
 
 const proto_stats_t *proto_stats(void);
 
+/* Modbus CRC16（proto.c 内部帧校验同款实现）；自动波特率扫描验证器
+ *（main.c）用它判定候选位速率下收到的帧是否有效 */
+uint16_t proto_crc16(const uint8_t *d, uint32_t n);
+
 /* ---- 设备画像（多设备分账） ----
  * 只给 CRC 校验通过且可解析的 FC03 帧建账：crc_err/len_err 帧的地址域
  * 不可信、unsupported 帧方向未知，均只计总线级不归因设备；广播（addr=0）

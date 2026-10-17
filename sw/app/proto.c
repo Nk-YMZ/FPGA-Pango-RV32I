@@ -81,8 +81,10 @@ static void report_timeout(uint8_t addr)
     }
 }
 
-/* Modbus CRC16（多项式 0xA001 反向，初值 0xFFFF），与 gen_script.py 交叉验证 */
-static uint16_t crc16(const uint8_t *d, uint32_t n)
+/* Modbus CRC16（多项式 0xA001 反向，初值 0xFFFF），与 gen_script.py 交叉验证。
+   导出而非 static：自动波特率扫描验证器（main.c）复用同一实现判定候选
+   位速率下的帧有效性，避免两处 CRC 实现漂移 */
+uint16_t proto_crc16(const uint8_t *d, uint32_t n)
 {
     uint16_t crc = 0xFFFF;
     for (uint32_t i = 0; i < n; i++) {
@@ -112,7 +114,7 @@ static void process_frame(void)
         return;
     }
     {
-        uint16_t c = crc16(buf, flen - 2);
+        uint16_t c = proto_crc16(buf, flen - 2);
         if (buf[flen - 2] != (uint8_t)(c & 0xFF) || buf[flen - 1] != (uint8_t)(c >> 8)) {
             st.crc_err++;
             app_put_str("FRAME crc_err\n");

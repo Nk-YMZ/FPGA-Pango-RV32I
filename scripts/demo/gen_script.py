@@ -153,6 +153,20 @@ def scenario_multidev() -> list:
     ]
 
 
+def scenario_baudscan() -> list:
+    """自动波特率（误配开局自恢复）：总线以非默认位速率运行（本场景由
+    Makefile 以 --bitdiv 48 生成脚本并给 tb 传 +MONBITDIV=48），固件按
+    默认 32 开局 → 误配乱报（垃圾帧）→ 收满 64 垃圾字节触发扫描 →
+    逐候选观察窗评估 → 锁定 48 → 统计清零后诊断恢复正常。
+    流量须足够长：覆盖误配触发（≥64 垃圾字节）+ 逐候选观察窗
+    （每个窗内都要有持续流量供 CRC 有效性判定），故持续发问答案对。"""
+    seq = []
+    for i in range(20):
+        seq.append((OPEN_IDLE if i == 0 else 8 * CHAR, REQ))
+        seq.append((RSP_DELAY, RSP))
+    return seq
+
+
 SCENARIOS = {
     "normal": scenario_normal,
     "bad_crc": scenario_bad_crc,
@@ -165,6 +179,7 @@ SCENARIOS = {
     "retrystorm": scenario_retrystorm,
     "offline": scenario_offline,
     "multidev": scenario_multidev,
+    "baudscan": scenario_baudscan,
 }
 
 

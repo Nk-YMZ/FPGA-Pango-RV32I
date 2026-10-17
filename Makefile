@@ -130,13 +130,15 @@ bench: $(SOC_TB)
 # 经 GPIO 魔数报码（中断驱动固件配置了 mtvec 无停机概念，+GPIOEND 以魔数
 # 写入为结束信号并核对其值 + tb 核脚本发完），同时 UART 输出经 +UARTLOG
 # 落盘后与 scripts/demo/golden/ 逐场景文本 diff（仿真输出逐拍确定）。
-DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast multidev interference retrystorm offline
+DEMO_SCENARIOS := normal bad_crc truncated exception unsupported_fc timeout broadcast multidev interference retrystorm offline baudscan
 DEMO_SCRIPTS   := $(addprefix $(BUILD)/demo_script_,$(addsuffix .hex,$(DEMO_SCENARIOS)))
 
 demo: $(SOC_TB) $(BUILD)/app_demo.hex $(DEMO_SCRIPTS)
 	@set -e; for sc in $(DEMO_SCENARIOS); do \
 	  echo "----- demo 场景 $$sc -----"; \
+	  monbd=32; [ "$$sc" = baudscan ] && monbd=48; \
 	  $(SOC_TB) +HEX=$(BUILD)/app_demo.hex +MONSCRIPT=$(BUILD)/demo_script_$$sc.hex \
+	      +MONBITDIV=$$monbd \
 	      +MAGIC=0000900d +GPIOEND +UARTLOG=$(BUILD)/demo_out_$$sc.txt \
 	      > $(BUILD)/demo_log_$$sc.txt 2>&1 || { cat $(BUILD)/demo_log_$$sc.txt; exit 1; }; \
 	  grep -v '^PERF' $(BUILD)/demo_out_$$sc.txt | diff -u scripts/demo/golden/$$sc.txt - > /dev/null || \
@@ -198,6 +200,12 @@ stress: $(SOC_TB)
 	  done; \
 	done
 	@grep '^PERF' $(BUILD)/stress_out.txt
+
+# baudscan 场景总线以非默认位速率运行（固件默认 32 开局误配 → 自动
+# 扫描锁定 48；tb 侧 +MONBITDIV=48 与脚本一致，由 demo 目标内条件保证）
+$(BUILD)/demo_script_baudscan.hex: scripts/demo/gen_script.py
+	@mkdir -p $(BUILD)
+	python3 $< --scenario baudscan --bitdiv 48 > $@
 
 $(BUILD)/demo_script_%.hex: scripts/demo/gen_script.py
 	@mkdir -p $(BUILD)

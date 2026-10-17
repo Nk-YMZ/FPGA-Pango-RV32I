@@ -192,6 +192,139 @@ static void tick_process(void)
     }
 }
 
+/* ---- 自动波特率（免配置接入与误配自恢复） ----
+ * 不做开机常开扫描：总线空闲时无流量可锁，且开局扫描会白白吃掉首段
+ * 流量。固件按当前 BITDIV 正常运行，后台统计「自上一个 CRC 有效帧
+ * 以来喂入的字节数」：BITDIV 与总线波特率不符时接收器只产出垃圾
+ * 字节、有效帧归零，字节计数超阈（64）即判定误配并进入扫描。阈值
+ * 按字节而非坏帧数计：误配方向不同垃圾成帧形态不同（过快→连绵超
+ * 长帧、过慢→碎帧），字节数对两种形态都敏感。既有 demo 场景最长
+ * 连续无效流量仅 24 字节（interference 3 帧），阈值 64 不会误触发。
+ * 扫描：候选位周期表轮询——en=0 窗口写 BITDIV、clear、重新使能，
+ * 开 48 字符观察窗，窗内 CRC 有效帧 ≥2 即锁定（单帧假阳性 1/65536，
+ * 2 帧足够稳健；CRC 复用 proto 层同一实现）。窗满未锁定换下一候选，
+ * 整表循环——总线空闲时保持扫描等流量，命令接口不受影响。锁定后
+ * 按新位周期重算切帧/超时阈值与节拍并 proto_init 清零重计：误配
+ * 期间的垃圾统计不可信，不入账（此前已打印的 FRAME 行是误配症状
+ * 本身，demo baudscan 场景留档）。扫描期字节不喂 proto（proto_tick
+ * 同样暂停），MTI 节拍仅作观察窗推进的唤醒源。
+ * 候选表是仿真取值（含默认 32 与 baudscan 场景的 48）；上板应按实际
+ * 时钟与目标波特率集（115200~9600 等）重新生成（deploy.md 3.4）。 */
+#define BAUD_TRIG_BYTES 64u     /* 误配触发：自上一有效帧起收满此字节数 */
+#define SCAN_WIN_CHARS  48u     /* 每候选观察窗（字符时间） */
+#define SCAN_FMAX       32u     /* 扫描验证器帧缓冲上限（超长帧判无效） */
+static const uint16_t baud_cands[] = {16, 24, 32, 48, 64, 96};
+#define BAUD_NCANDS (sizeof(baud_cands) / sizeof(baud_cands[0]))
+
+static uint32_t bitdiv;             /* 当前位周期（锁定后更新） */
+#ifdef DEMO_MODE
+static uint32_t converge;           /* 时间窗收敛阈值（随 bitdiv 换算） */
+#endif
+static int      scanning;           /* 扫描进行中 */
+static uint32_t cand_idx;           /* 当前候选下标 */
+static uint32_t win_start;          /* 本候选观察窗起点（MON_NOW） */
+static uint32_t valid_prev;         /* 有效帧计数快照（误配检测） */
+static uint32_t feed_n_at_valid;    /* 上一有效帧时的字节喂入计数 */
+static uint8_t  scan_buf[SCAN_FMAX];
+static uint32_t scan_flen, scan_last_ts, scan_valid;
+static int      scan_bad;           /* 当前扫描帧超长或带串口帧错误 */
+
+/* 扫描帧关闭：CRC 通过且无帧错误、长度合法才算有效帧 */
+static void scan_close(void)
+{
+    if (!scan_bad && scan_flen >= 4) {
+        uint16_t c = proto_crc16(scan_buf, scan_flen - 2);
+        if (scan_buf[scan_flen - 2] == (uint8_t)(c & 0xFFu)
+            && scan_buf[scan_flen - 1] == (uint8_t)(c >> 8))
+            scan_valid++;
+    }
+    scan_flen = 0;
+}
+
+static void scan_feed(uint32_t ts, uint8_t data, uint8_t flags)
+{
+    uint32_t gap = (uint32_t)baud_cands[cand_idx] * 11u * 7u / 2u;
+    if (scan_flen != 0 && (ts - scan_last_ts) > gap)
+        scan_close();
+    if (scan_flen == 0) scan_bad = 0;           /* 新帧开始 */
+    if (flags & 1u) scan_bad = 1;               /* 停止位错误：直接判无效 */
+    if (scan_flen < SCAN_FMAX) scan_buf[scan_flen++] = data;
+    else                       scan_bad = 1;
+    scan_last_ts = ts;
+}
+
+/* 切换到候选位周期并重新开窗：en=0 写 BITDIV（运行中改属非常规用法，
+   deploy.md 3.4）、clear 清 FIFO/时间戳、重新使能；切换期间积压的
+   记录是混合速率的垃圾，直接丢弃 */
+static void scan_begin(void)
+{
+    MON_CTRL = 0;
+    MON_BITDIV = baud_cands[cand_idx];
+    MON_CTRL = 0x4u;
+    MON_CTRL = 0x3u;                /* en=1 | irq_en=1 */
+    ev_tail = ev_head;              /* 丢弃切换窗口期积压的垃圾记录 */
+    scan_flen = 0;
+    scan_valid = 0;
+    win_start = MON_NOW;            /* clear 已归零，约为 0 */
+}
+
+/* 锁定：候选即当前 BITDIV，重算全部派生阈值并清零重计（误配期垃圾
+   统计不可信）；误配检测重新起算 */
+static void scan_lock(void)
+{
+    scanning = 0;
+    bitdiv = baud_cands[cand_idx];
+    uint32_t gap = bitdiv * 11u * 7u / 2u;
+    proto_init(gap, bitdiv * 11u * 16u);
+    tick_period = gap / 2u;
+#ifdef DEMO_MODE
+    converge = bitdiv * 11u * 24u;
+#endif
+    valid_prev = 0;
+    feed_n_at_valid = perf_feed_n;
+    app_put_str("AUTOBAUD lock bitdiv=");
+    app_put_dec(bitdiv);
+    app_put_str("\n");
+}
+
+/* 扫描期主循环：排空事件缓冲喂扫描验证器（不喂 proto），窗满评估——
+   锁不上换下一候选循环。节拍标志仅作唤醒源，读后即清 */
+static void scan_process(void)
+{
+    while (ev_tail != ev_head) {
+        uint32_t ts = ev_ts[ev_tail];
+        uint32_t d  = ev_d[ev_tail];
+        ev_tail = (ev_tail + 1u) & (EV_SIZE - 1u);
+        scan_feed(ts, (uint8_t)(d & 0xFFu), (uint8_t)((d >> 8) & 0x3u));
+    }
+    if (tick_flag) tick_flag = 0;
+    uint32_t bd  = baud_cands[cand_idx];
+    uint32_t now = MON_NOW;
+    if (scan_flen != 0 && (now - scan_last_ts) > bd * 11u * 7u / 2u)
+        scan_close();
+    if ((now - win_start) > bd * 11u * SCAN_WIN_CHARS) {
+        if (scan_valid >= 2) scan_lock();
+        else { cand_idx = (cand_idx + 1u) % BAUD_NCANDS; scan_begin(); }
+    }
+}
+
+/* 误配检测（正常运行期主循环调用）：有效帧（CRC 通过：正常/异常回复、
+   请求、unsupported）刷新快照；否则字节持续累积超阈即触发扫描 */
+static void baud_detect(void)
+{
+    const proto_stats_t *s = proto_stats();
+    uint32_t valid = s->requests + s->responses + s->exc_rsp + s->unsupported;
+    if (valid != valid_prev) {
+        valid_prev = valid;
+        feed_n_at_valid = perf_feed_n;
+    } else if (perf_feed_n - feed_n_at_valid >= BAUD_TRIG_BYTES) {
+        scanning = 1;
+        cand_idx = 0;
+        app_put_str("AUTOBAUD scan start\n");
+        scan_begin();
+    }
+}
+
 /* 下一拍节拍 = 当前 mtime + tick_period。写 mtimecmp 先抬高位，
  * 避免半写瞬间落入比较区间误触发 */
 static void mtimer_next_tick(void)
@@ -459,7 +592,7 @@ int main(void)
     MON_BITDIV = MON_BITDIV_CFG;
 #endif
     MON_CTRL = 0x3u;                /* en=1 | irq_en=1（FIFO 非空 → MEI） */
-    uint32_t bitdiv = MON_BITDIV;
+    bitdiv = MON_BITDIV;
     uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */
     uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
     proto_init(gap, tout);
@@ -488,16 +621,21 @@ int main(void)
        且最后总线活动后再空闲足够长（保证末帧已由墙钟收尾、挂起请求已
        超时上报），即认为场景流量结束。
        收敛窗 = 24 字符 > 超时阈值(16) + 切帧阈值(3.5) */
-    const uint32_t converge = bitdiv * 11u * 24u;
+    converge = bitdiv * 11u * 24u;
 #endif
     for (;;) {
-        ev_process();
-        tick_process();
+        if (scanning) {
+            scan_process();
+        } else {
+            ev_process();
+            tick_process();
+            baud_detect();
+        }
 #ifndef DEMO_MODE
         cmdq_process();
 #endif
 #ifdef DEMO_MODE
-        if (ev_tail == ev_head && proto_stats()->frames >= 1
+        if (!scanning && ev_tail == ev_head && proto_stats()->frames >= 1
             && !proto_pending() && !(MON_STATUS & 0x1u)
             && (MON_NOW - last_act) > converge)
             break;
