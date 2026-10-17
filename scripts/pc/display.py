@@ -8,9 +8,11 @@
   python3 display.py --selftest   # 无硬件自检（实解析 demo golden 文件）
 
 固件输出协议（sw/app/，整行 ASCII）：banner / REQ / RSP / EXR / TIMEOUT /
-DIAG / FRAME / STAT / DEVS / DEV / PERF / OK / ERR / timeout=<n> / cmds: /
-RESULT。DIAG 为跨帧模式诊断行：DIAG link-interference / retry-storm /
-offline / recover（见 proto.h 文件头口径）。
+DIAG / FRAME / STAT / DEVS / DEV / PERF / LOG / AUTOBAUD / OK / ERR /
+timeout=<n> / alarm=<0|1> / cmds: / RESULT。DIAG 为跨帧模式诊断行：
+DIAG link-interference / retry-storm / offline / recover（见 proto.h 文件头
+口径）。LOG 为故障事件日志导出（概要行 + 逐条事件）；AUTOBAUD 为自动
+波特率（误配触发扫描 / 锁定）。
 --fclk 用于把周期数换算成时间，须按 PDS 工程实际时钟设置（示例 50 MHz）。
 依赖 pyserial（仅实际开串口时需要）。
 Windows 要点：串口名用 --port COMx（如 COM3）；pyserial 用
@@ -56,6 +58,18 @@ def parse_line(line: str):
         f = _kvs(m.group(2))
         f["kind"] = m.group(1)
         return ("frame", f)
+    if line.startswith("AUTOBAUD "):
+        # 自动波特率："AUTOBAUD scan start" / "AUTOBAUD lock bitdiv=<n>"
+        return ("autobaud", _kvs(line))
+    if line.startswith("LOG "):
+        # 事件日志：概要行 "LOG n=<n> drop=<n>"；条目行
+        # "LOG #<seq> ts=<cyc> <事件名> [addr=hh] aux=<n>"
+        rest = line[4:]
+        f = _kvs(rest)
+        m = re.match(r"^#(\d+)\s+ts=\d+\s+([\w-]+)", rest)
+        if m:
+            f["seq"], f["kind"] = m.group(1), m.group(2)
+        return ("log", f)
     m = re.match(r"^(STAT|PERF|DEVS|DEV)\s+(.*)$", line)
     if m:
         return (m.group(1).lower(), _kvs(m.group(2)))
@@ -109,6 +123,18 @@ def show(kind: str, f: dict, fclk: float) -> str:
         return s
     if kind in ("stat", "perf", "devs", "dev"):
         return f"{kind.upper()}  " + " ".join(f"{k}={v}" for k, v in f.items())
+    if kind == "autobaud":
+        return (f"自动波特率  锁定 bitdiv={f['bitdiv']}"
+                f"（{fmt_us(f['bitdiv'], fclk)}/位）" if "bitdiv" in f
+                else "自动波特率  检测到误配，开始候选扫描")
+    if kind == "log":
+        if "kind" in f:
+            s = f"日志 #{f['seq']}  {f['kind']}"
+            if "addr" in f:
+                s += f" addr={f['addr']}"
+            return (s + f"  ts={f['ts']}cyc({fmt_us(f['ts'], fclk)})"
+                    f" aux={f['aux']}")
+        return f"日志概要  存活={f.get('n')}  覆盖丢弃={f.get('drop')}"
     if kind in ("ok", "err", "cfg", "help", "banner", "result"):
         return f.get("text", "") if kind != "result" else \
             ("RESULT: PASS" if f["pass"] else "RESULT: FAIL")
@@ -175,6 +201,20 @@ def selftest() -> None:
     cfgs = [parse_line(l)[1] for l in lines if l.startswith("timeout=")]
     check([c["timeout"] for c in cfgs] == ["5632", "7000"],
           f"app timeout 查询序列 {cfgs}")
+    # baudscan（自动波特率）：误配触发扫描 → 锁定 48，锁定后恢复正常问答
+    lines = (GOLDEN_DIR / "baudscan.txt").read_text(encoding="utf-8").splitlines()
+    autos = [parse_line(l)[1] for l in lines if l.startswith("AUTOBAUD")]
+    check(len(autos) == 2 and autos[1].get("bitdiv") == "48",
+          f"baudscan AUTOBAUD 序列 {autos}")
+    # app_fault（事件日志/告警命令）：offline 场景的 5 条事件导出 +
+    # alarm 查询 1→0（alarm off 生效）+ logclear 后空日志
+    lines = (GOLDEN_DIR / "app_fault.txt").read_text(encoding="utf-8").splitlines()
+    logs = [parse_line(l)[1] for l in lines if l.startswith("LOG #")]
+    check([f["kind"] for f in logs] ==
+          ["timeout", "offline", "recover", "timeout", "offline"],
+          f"app_fault 日志事件序列 {logs}")
+    alarms = [parse_line(l)[1]["alarm"] for l in lines if l.startswith("alarm=")]
+    check(alarms == ["1", "0"], f"app_fault alarm 查询序列 {alarms}")
 
     if fails == 0:
         print("display selftest: PASS（全部 golden 行识别 + 关键场景断言通过）")

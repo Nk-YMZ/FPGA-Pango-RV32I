@@ -160,6 +160,24 @@ demo-app: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_normal.hex $(BUILD
 	    { grep -v '^PERF' $(BUILD)/demo_app_out.txt | diff -u scripts/demo/golden/app.txt -; \
 	      echo "FAIL: 命令接口输出与 golden 不一致"; exit 1; }
 	@echo "===== 命令接口测试通过 ====="
+	@$(MAKE) --no-print-directory demo-app-fault
+
+# 故障事件日志与 GPIO 告警命令场景：offline 总线流量（2 次超时 + 2 次离线
+# + 1 次恢复，故障事件应已入日志且告警锁存）处理完后注入 log/alarm/
+# logclear 命令流，UART 输出与 golden diff 判定（事件时间戳逐拍确定）
+demo-app-fault: $(SOC_TB) $(BUILD)/app_mon.hex $(BUILD)/demo_script_offline.hex $(BUILD)/demo_cmd_fault.rxf
+	$(SOC_TB) +HEX=$(BUILD)/app_mon.hex +MONSCRIPT=$(BUILD)/demo_script_offline.hex \
+	    +RXFILE=$(BUILD)/demo_cmd_fault.rxf +TIMEOUT=600000 +TIMEOUTPASS \
+	    +UARTLOG=$(BUILD)/demo_app_fault_out.txt > $(BUILD)/demo_app_fault_log.txt 2>&1 || \
+	    { cat $(BUILD)/demo_app_fault_log.txt; exit 1; }
+	@grep -v '^PERF' $(BUILD)/demo_app_fault_out.txt | diff -u scripts/demo/golden/app_fault.txt - > /dev/null || \
+	    { grep -v '^PERF' $(BUILD)/demo_app_fault_out.txt | diff -u scripts/demo/golden/app_fault.txt -; \
+	      echo "FAIL: 故障日志/告警命令输出与 golden 不一致"; exit 1; }
+	@echo "===== 故障日志/告警命令测试通过 ====="
+
+$(BUILD)/demo_cmd_fault.rxf: scripts/demo/gen_cmd.py
+	@mkdir -p $(BUILD)
+	python3 $< --set fault > $@
 
 $(BUILD)/demo_cmd.rxf: scripts/demo/gen_cmd.py
 	@mkdir -p $(BUILD)

@@ -60,6 +60,24 @@ const proto_stats_t *proto_stats(void);
  *（main.c）用它判定候选位速率下收到的帧是否有效 */
 uint16_t proto_crc16(const uint8_t *d, uint32_t n);
 
+/* ---- 故障事件钩子 ----
+ * 诊断上报点同步抛出事件，由应用侧（main.c）实现：进事件环形日志、
+ * 驱动 GPIO 告警；本层不接触 MMIO。ts 为事件时刻（帧事件取末字节
+ * 时间戳，超时取判定时刻）；addr 仅对设备相关事件有效（其余为 0）；
+ * aux 语义随类型：crc_err/len_err=帧长，timeout=全局累计超时数，
+ * interference=连续坏帧数，retry-storm=连续重试数，offline=该设备
+ * 累计超时数，recover=0。 */
+enum {
+    EV_CRC_ERR = 1,     /* CRC 校验失败帧（单帧，不告警） */
+    EV_LEN_ERR,         /* 长度/格式异常帧（单帧，不告警） */
+    EV_TIMEOUT,         /* 待回复超时（告警） */
+    EV_INTERFERENCE,    /* DIAG 链路干扰（告警） */
+    EV_RETRY_STORM,     /* DIAG 重试风暴（告警） */
+    EV_OFFLINE,         /* DIAG 设备离线（告警） */
+    EV_RECOVER          /* DIAG 设备恢复（不告警，也不自动撤告警） */
+};
+void app_log_event(uint32_t ts, uint8_t type, uint8_t addr, uint32_t aux);
+
 /* ---- 设备画像（多设备分账） ----
  * 只给 CRC 校验通过且可解析的 FC03 帧建账：crc_err/len_err 帧的地址域
  * 不可信、unsupported 帧方向未知，均只计总线级不归因设备；广播（addr=0）

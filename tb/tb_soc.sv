@@ -21,7 +21,10 @@
 //   golden 文件 diff（固件输出在仿真中逐拍确定，可直接文本比对）
 // - GPIO 魔数结束（+GPIOEND，与 +MAGIC 同用）：中断驱动固件配置了 mtvec
 //   后 ecall/ebreak 走标准陷入而不再停机，结束信号改为 GPIO 魔数写入——
-//   检测到 gpio_out 非零即结束仿真并核对是否等于 MAGIC（0x900D=PASS）
+//   检测到 gpio_out 低 16 位非零即结束仿真并核对是否等于 MAGIC（0x900D=PASS）。
+//   只看低半字：gpio_out bit16 是应用故障告警锁存位（故障事件置位），
+//   不应触发结束；finish/trap_handler 收尾写全字魔数会同时清掉告警位，
+//   结束后的全字魔数核对不受影响
 `timescale 1ns/1ps
 `default_nettype none
 
@@ -315,7 +318,7 @@ module tb_soc;
     fork
       wait (halted);
       wait (act_done);
-      wait (gpioend && gpio_out != 32'h0);
+      wait (gpioend && gpio_out[15:0] != 16'h0);
       begin
         repeat (timeout_cycles) @(posedge clk);
         if (timeoutpass)

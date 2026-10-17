@@ -27,10 +27,30 @@ COMMANDS = [
     "help",           # 命令清单
 ]
 
+# 故障事件日志与 GPIO 告警命令集：配合 offline 总线场景（2 次超时 + 2 次
+# 离线 + 1 次恢复，告警应已锁存），验证 log 导出 / alarm 查询与撤销 /
+# logclear 清空
+FAULT_COMMANDS = [
+    "log",            # 应见 5 条事件：timeout/offline/recover/timeout/offline
+    "alarm",          # 告警应已锁存：alarm=1
+    "alarm off",      # 撤告警
+    "alarm",          # 再查：alarm=0（确认撤销生效）
+    "logclear",       # 清日志
+    "log",            # 应见 LOG n=0（确认清空生效）
+    "help",           # 命令清单（含 log/logclear/alarm）
+]
+
 
 def main() -> None:
+    import argparse
+    ap = argparse.ArgumentParser(description="生成命令注入脚本 hex 映像")
+    ap.add_argument("--set", default="basic", choices=["basic", "fault"],
+                    help="命令集：basic=基本命令接口，fault=日志/告警"
+                         "（配合 offline 总线场景）")
+    args = ap.parse_args()
+    cmds = COMMANDS if args.set == "basic" else FAULT_COMMANDS
     entries = []
-    for cmd in COMMANDS:
+    for cmd in cmds:
         for i, ch in enumerate((cmd + "\n").encode("ascii")):
             entries.append((INTRA if i else INTER, ch))
     entries.append((0xFFFFFFFF, 0))   # 结束标记

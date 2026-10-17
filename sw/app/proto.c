@@ -61,11 +61,12 @@ static void dev_resp_update(proto_dev_t *d, uint32_t dt)
  * 离线事件同址上报：仅对「已建立应答记录」的设备（曾正常或异常回复），
  * 超时即判离线并上报一次；从未应答过的设备可能根本不在线上，只报
  * TIMEOUT 不归因离线 */
-static void report_timeout(uint8_t addr)
+static void report_timeout(uint8_t addr, uint32_t ts)
 {
     st.timeouts++;
     proto_dev_t *d = dev_lookup(addr, 0);
     if (d) d->timeouts++;
+    app_log_event(ts, EV_TIMEOUT, addr, st.timeouts);
     app_put_str("TIMEOUT addr=");
     app_put_hex(addr, 2);
     app_put_str(" thresh=");
@@ -73,6 +74,7 @@ static void report_timeout(uint8_t addr)
     app_put_str("cyc no-response\n");
     if (d && (d->responses || d->exc_rsp) && !d->offline) {
         d->offline = 1;
+        app_log_event(ts, EV_OFFLINE, addr, d->timeouts);
         app_put_str("DIAG offline addr=");
         app_put_hex(addr, 2);
         app_put_str(" tout=");
@@ -106,11 +108,13 @@ static void process_frame(void)
     if (overlong) {
         st.len_err++;
         app_put_str("FRAME len_err\n");
+        app_log_event(f_last, EV_LEN_ERR, 0, flen);
         return;
     }
     if (flen < 4) {                 /* 最短合法帧：addr+fc+CRC = 4 字节 */
         st.len_err++;
         app_put_str("FRAME len_err\n");
+        app_log_event(f_last, EV_LEN_ERR, 0, flen);
         return;
     }
     {
@@ -118,11 +122,13 @@ static void process_frame(void)
         if (buf[flen - 2] != (uint8_t)(c & 0xFF) || buf[flen - 1] != (uint8_t)(c >> 8)) {
             st.crc_err++;
             app_put_str("FRAME crc_err\n");
+            app_log_event(f_last, EV_CRC_ERR, 0, flen);
             /* 链路干扰：连续 CRC 错误达阈才上报（单帧抖动不报）；上报
                仅在达阈这一帧（burst 继续扩大不重复报）。len_err 帧不
                计入也不打断计数（其长度域不可信、无法验证 CRC） */
             crc_burst++;
             if (crc_burst == CRC_BURST_DIAG) {
+                app_log_event(f_last, EV_INTERFERENCE, 0, crc_burst);
                 app_put_str("DIAG link-interference crc_burst=");
                 app_put_dec(crc_burst);
                 app_put_str("\n");
@@ -137,6 +143,7 @@ static void process_frame(void)
         if (flen != 5) {
             st.len_err++;
             app_put_str("FRAME len_err\n");
+            app_log_event(f_last, EV_LEN_ERR, 0, flen);
             return;
         }
         st.exc_rsp++;
@@ -167,6 +174,7 @@ static void process_frame(void)
             app_put_str("DIAG recover addr=");
             app_put_hex(addr, 2);
             app_put_str("\n");
+            app_log_event(f_last, EV_RECOVER, addr, 0);
         }
         return;
     }
@@ -193,7 +201,7 @@ static void process_frame(void)
                工总线上不存在「回复在传同时新请求到达」，无需静默条件；
                时间基准用硬件时间戳（新帧首字节），与处理延迟无关 */
             if (pend_valid && (f_first - pend_end_ts) > timeout_thresh)
-                report_timeout(pend_addr);
+                report_timeout(pend_addr, f_first);
             pend_valid  = 1;
             pend_addr   = addr;
             pend_end_ts = f_last;
@@ -234,6 +242,7 @@ static void process_frame(void)
             app_put_str(" retries=");
             app_put_dec(rq_retries);
             app_put_str("\n");
+            app_log_event(f_last, EV_RETRY_STORM, addr, rq_retries);
         }
     } else if (flen >= 5 && flen == 5u + buf[2]) {  /* FC03 正常回复 */
         uint32_t i;
@@ -265,10 +274,12 @@ static void process_frame(void)
             app_put_str("DIAG recover addr=");
             app_put_hex(addr, 2);
             app_put_str("\n");
+            app_log_event(f_last, EV_RECOVER, addr, 0);
         }
     } else {
         st.len_err++;
         app_put_str("FRAME len_err\n");
+        app_log_event(f_last, EV_LEN_ERR, 0, flen);
     }
 }
 
@@ -319,7 +330,7 @@ void proto_tick(uint32_t now)
         && (now - last_ts) > gap_thresh) {
         uint8_t pa = pend_addr;
         pend_valid = 0;
-        report_timeout(pa);
+        report_timeout(pa, now);
     }
 }
 

@@ -155,8 +155,8 @@ COMx（--port 指定），pyserial 安装分别为 pacman / pip；统一自检�
 环境确认。分析仪命令接口为单字节接收保持：PC 自动化发命令必须等上一条
 响应行返回后再发下一条，否则字节丢失（design.md 6.4）。
 
-**多设备与目标形态 PC 操作**（多设备画像、跨帧模式诊断与自动波特率
-已落地；日志与 GPIO 告警随待办推进陆续落地，进度以 AGENTS.md 为准）：
+**多设备与目标形态 PC 操作**（多设备画像、跨帧模式诊断、自动波特率、
+故障事件日志与 GPIO 告警均已落地，demo 留档见 scripts/demo/golden/）：
 
 - 多设备模拟（已可用）：device_sim 以多设备实例运行——`--dev 1:normal
   --dev 2:bad_crc --dev 3:no_reply`，Modbus 协议保证同一时刻只有一个

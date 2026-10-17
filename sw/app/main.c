@@ -27,7 +27,7 @@
  * 不变式，经 finish() 报码；场景级期望由 Makefile 将 UART 输出与
  * scripts/demo/golden/ 逐场景 diff 判定（仿真输出逐拍确定）。
  * 非 DEMO_MODE（上板连续运行形态）：永不退出，带 UART 命令接口
- *（stat/clear/timeout/perf/help，见 cmd_exec）。
+ *（stat/dev/clear/timeout/bitdiv/perf/log/logclear/alarm/help，见 cmd_exec）。
  * 场景脚本由 scripts/demo/gen_script.py 生成（CRC 独立计算，交叉验证）。 */
 #include <stdint.h>
 #include "proto.h"
@@ -479,6 +479,69 @@ static void print_perf(void)
     app_put_str("\n");
 }
 
+/* ---- 故障事件日志 + GPIO 告警 ----
+ * proto 层诊断上报点经 app_log_event 钩子抛事件（本函数是钩子的应用侧
+ * 实现）：进 64 条环形事件日志（满则覆盖最旧，drop 计数经总数算出，
+ * 不静默），故障类事件（超时/链路干扰/重试风暴/设备离线）同时锁存
+ * GPIO 告警位（gpio_out bit16，上板接 LED/蜂鸣器）。
+ * 告警口径：单帧 crc_err/len_err 不告警（偶发误码，突发由干扰事件覆盖）；
+ * 恢复事件不自动撤告警（其他故障可能仍在）；告警由 clear / alarm off
+ * 命令撤销。bit16 与 demo 魔数报码（低 16 位）不冲突：tb +GPIOEND 只
+ * 检测低半字；finish/trap_handler 收尾写全字魔数会同时清掉告警位。
+ * 环形日志用 log_total 单调计数当下标：写入位置 = log_total % 64，
+ * 最旧条目自然被覆盖；导出时按序号（总数-存活+1 .. 总数）顺序打印。 */
+#define LOG_SIZE   64u            /* 须为 2 的幂 */
+#define GPIO_ALARM (1u << 16)
+
+typedef struct {
+    uint32_t ts, aux;
+    uint8_t  type, addr;
+} log_ent_t;
+
+static log_ent_t log_ring[LOG_SIZE];
+static uint32_t  log_total;       /* 事件总数（含已被覆盖的） */
+
+/* 事件类型名（下标即 proto.h 的事件编码，0 号不用） */
+static const char *const log_names[] = {
+    "?", "crc_err", "len_err", "timeout",
+    "link-interference", "retry-storm", "offline", "recover"
+};
+
+void app_log_event(uint32_t ts, uint8_t type, uint8_t addr, uint32_t aux)
+{
+    log_ring[log_total % LOG_SIZE] = (log_ent_t){ ts, aux, type, addr };
+    log_total++;
+    if (type == EV_TIMEOUT || type == EV_INTERFERENCE
+        || type == EV_RETRY_STORM || type == EV_OFFLINE)
+        GPIO_OUT = GPIO_OUT | GPIO_ALARM;   /* 故障锁存（OUT 寄存器可读） */
+}
+
+static void print_log(void)
+{
+    uint32_t used = log_total < LOG_SIZE ? log_total : LOG_SIZE;
+    app_put_str("LOG n=");
+    app_put_dec(used);
+    app_put_str(" drop=");
+    app_put_dec(log_total - used);
+    app_put_str("\n");
+    for (uint32_t i = 0; i < used; i++) {
+        const log_ent_t *e = &log_ring[(log_total - used + i) % LOG_SIZE];
+        app_put_str("LOG #");
+        app_put_dec(log_total - used + i + 1);   /* 绝对序号，覆盖后可察觉 */
+        app_put_str(" ts=");
+        app_put_dec(e->ts);
+        app_put_str(" ");
+        app_put_str(log_names[e->type & 0x7u]);
+        if (e->type >= EV_TIMEOUT) {             /* 设备相关事件才有地址 */
+            app_put_str(" addr=");
+            app_put_hex(e->addr, 2);
+        }
+        app_put_str(" aux=");
+        app_put_dec(e->aux);
+        app_put_str("\n");
+    }
+}
+
 /* ---- 命令接口（连续运行形态）：PC 经结果 UART 下行整行命令 ----
  * nostdlib 环境无 string.h，字符串比较与十进制解析就地实现。
  * 命令集：stat 查统计 / clear 清统计 / timeout 查阈值 / timeout <n> 设阈值
@@ -519,9 +582,11 @@ static void cmd_exec(void)
     } else if (streq(cmd_buf, "clear")) {
         proto_clear();
         /* perf 计数同步清零（口径：清零时刻之后的开销才计入；本响应自身
-           的打印阻塞会计入新累计） */
+           的打印阻塞会计入新累计）；告警一并撤销（清统计 = 复位诊断面），
+           事件日志保留可追溯（清空用 logclear） */
         perf_feed_n = perf_feed_cyc = perf_frame_cyc = perf_frame_max = 0;
         uart_wait_cyc = 0;
+        GPIO_OUT = GPIO_OUT & ~GPIO_ALARM;
         app_put_str("OK clear\n");
     } else if (streq(cmd_buf, "timeout")) {
         app_put_str("timeout=");
@@ -545,8 +610,21 @@ static void cmd_exec(void)
         app_put_str("bitdiv=");
         app_put_dec(MON_BITDIV);
         app_put_str("\n");
+    } else if (streq(cmd_buf, "log")) {
+        print_log();
+    } else if (streq(cmd_buf, "logclear")) {
+        log_total = 0;
+        app_put_str("OK logclear\n");
+    } else if (streq(cmd_buf, "alarm")) {
+        /* 告警锁存查询（gpio_out bit16；故障类事件置位，恢复不自动撤） */
+        app_put_str("alarm=");
+        app_put_dec((GPIO_OUT & GPIO_ALARM) ? 1 : 0);
+        app_put_str("\n");
+    } else if (streq(cmd_buf, "alarm off")) {
+        GPIO_OUT = GPIO_OUT & ~GPIO_ALARM;
+        app_put_str("OK alarm=0\n");
     } else if (streq(cmd_buf, "help")) {
-        app_put_str("cmds: stat | dev | clear | timeout [clk] | bitdiv | perf | help\n");
+        app_put_str("cmds: stat | dev | clear | timeout [clk] | bitdiv | perf | log | logclear | alarm [off] | help\n");
     } else if (streq(cmd_buf, "perf")) {
         print_perf();
     } else {
