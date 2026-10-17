@@ -115,7 +115,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（12 总线场景 + 命令接口场景；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
+| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（12 总线场景 + 命令接口场景×2；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
 | 应用压力测量 | stress 场景扫「位速率 × 帧间隔」二维梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
 

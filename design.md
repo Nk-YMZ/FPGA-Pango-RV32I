@@ -174,7 +174,7 @@ MEI 聚合（irq_en 已由固件启用：中断驱动取数，见 6.2 节）。
 | 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
 | 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
 | 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：仿真发生器 → uart_mon → 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（12 总线场景 + 命令接口场景） | `make demo` |
+| 应用 demo | 总线监听多场景闭环：仿真发生器 → uart_mon → 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（12 总线场景 + 命令接口场景×2） | `make demo` |
 | 应用压力测量 | stress 场景扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数，结果入 bench/results.csv | `make bench` |
 
@@ -272,9 +272,10 @@ randtrap 与 randirq 两层上线各检出并修复一个真实 RTL bug：
 广播请求、多设备分账（multidev），以及三个跨帧模式诊断场景（链路干扰
 突发 interference、重试风暴 retrystorm、设备离线/恢复 offline），波特率
 误配自恢复场景（baudscan：总线以非默认位速率 48 clk/位发流量，固件默认
-32 开局 → 误配乱报 → 自动扫描锁定 → 统计清零后诊断恢复），另加
-连续运行形态的命令接口场景（stat/dev/clear/timeout/bitdiv/perf/help 与
-非法命令）。判定链双重：固件自检与场景无关的不变式（帧分类完备、无溢出、
+32 开局 → 误配乱报 → 自动扫描锁定 → 统计清零后诊断恢复），另加两个
+连续运行形态的命令接口场景：基本命令（stat/dev/clear/timeout/bitdiv/
+perf/help 与非法命令）与故障日志/告警命令（offline 场景流量 + log/
+logclear/alarm，事件时间戳逐拍确定）。判定链双重：固件自检与场景无关的不变式（帧分类完备、无溢出、
 无帧错误）后经 GPIO 魔数报码（中断驱动固件配置了 mtvec，ecall/ebreak
 走标准陷入而不再停机；tb +GPIOEND 以魔数写入为结束信号并核对其值），
 同时 UART 输出经
@@ -368,6 +369,14 @@ BITDIV 寄存器，切帧/超时阈值按读回值换算）、脚本 --bitdiv（
   与 baudscan 场景的 48），上板须按实际时钟与目标波特率集重新生成。
   误配检测不会误伤既有场景：demo 最长连续无效流量仅 24 字节
  （interference 3 帧），阈值 64 裕量充足。
+- 故障事件日志与 GPIO 告警：proto 层诊断上报点（坏帧/超时/四类 DIAG
+  事件）经 app_log_event 钩子同步抛事件（proto 层保持不碰 MMIO），
+  应用侧实现为 64 条环形事件日志（时间戳 + 类型 + 地址 + 辅助值，满
+  则覆盖最旧且 drop 计数可查不静默），连续形态经 log 命令导出、
+  logclear 清空；故障类事件（超时/链路干扰/重试风暴/设备离线）同时
+  锁存 GPIO 告警位（gpio_out bit16，上板接 LED/蜂鸣器），告警口径
+  见 6.4。bit16 与 demo 魔数报码（低 16 位）不冲突：tb +GPIOEND 只
+  检测低半字，固件收尾写全字魔数会同时清掉告警位。
 
 编译宏 DEMO_MODE 分两种形态（同一套 proto 解析逻辑）：仿真自检形态
 （时间窗收敛 + 自检报码，make demo 用）与上板连续运行形态（永不退出，
