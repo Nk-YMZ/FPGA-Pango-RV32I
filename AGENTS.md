@@ -35,53 +35,29 @@
 - 外设：UART（TX FIFO + RX 中断）、GPIO（输入电平中断）、周期计数器、
   mtimer（定时器中断）、uart_mon 总线监听采集外设（应用环节新增）
 
-**应用环节（工业串行通信分析，诊断能力已扩充完毕；细节见 design.md 第 6 节）：**
+**应用环节（工业串行通信分析；细节见 design.md 第 6 节）：**
 
 - 模块边界是核心设计约束：产品侧（uart_mon 采集外设 + sw/app 固件，上板
-  原样保留）与仿真环境侧（mbus_gen 发生器 + gen_script.py + tb_soc
-  +MONSCRIPT/+RXFILE/+UARTLOG 设施，上板后被真实总线替换）严格分离，
-  产品 RTL 中无 demo 专用逻辑
-- uart_mon（地址 0x1000_4000）：字节 + 帧错误标志 + 接收完成时刻时间戳
-  的记录 FIFO，TSTAMP(peek)/DATA(弹出) 配对读取，溢出计数不静默丢数据；
-  FIFO 非空电平中断已并入 MEI 聚合（irq_en 已由固件启用）
-- 固件 proto 解析核心（切帧/CRC16/FC03/异常回复/配对/超时诊断/设备画像
-  分账统计/跨帧模式诊断：链路干扰、重试风暴、设备离线-恢复）取数与处理
-  严格分离、不接触 MMIO——轮询升级为中断驱动时
-  proto 层与 RTL 零改动（已验证：升级后 demo golden 逐字节不变）
-- 固件事件缓冲取数：MEI（uart_mon FIFO 非空 / 结果 UART RX）handler
-  只搬运事件（记录入 128 条环形缓冲 / 命令字节入队 / MTI 置节拍标志），
-  解析、报告打印与命令执行全在主循环排空缓冲时进行（可被中断，报告
-  打印已移出中断关键路径）；主循环 WFI 真睡眠，总线空闲零算力消耗
-- 固件双形态（编译宏 DEMO_MODE）：仿真自检形态（时间窗收敛 + GPIO 魔数
-  报码，tb +GPIOEND 判结）与上板连续运行形态（UART 命令接口：
-  stat/dev/clear/timeout/bitdiv/perf/log/logclear/alarm/help）
-- 自动波特率（免配置接入/误配自恢复）：误配检测两级判据（主判据：
-  连续无效帧 ≥2 且自上一 CRC 有效帧以来累计 ≥64 字节，合法长帧与
-  单个长坏帧不误触发；兜底：累计 ≥512 字节无有效帧，覆盖垃圾连绵
-  永不收帧）→ 候选位周期表轮询扫描（观察窗内 CRC
-  有效帧 ≥2 锁定）→ 重算阈值并清零重计；纯固件实现（uart_mon BITDIV
-  运行期可写），误配期垃圾统计不入账
-- 故障事件日志 + GPIO 告警：proto 诊断上报点经钩子抛事件 → 64 条环形
-  事件日志（log/logclear 命令查询导出，覆盖不静默）；故障类事件锁存
-  gpio_out bit16 告警（alarm 查询/alarm off 或 clear 撤销；tb +GPIOEND
-  只检测低 16 位，与魔数报码不冲突）
-- demo（`make demo`）：15 个总线场景（正常/坏 CRC/截断/异常回复/未支持
-  功能码/无回复超时/广播/多设备分账/链路干扰突发/重试风暴/设备离线-恢复/
-  合法长帧/单个长坏帧/波特率误配自恢复（主判据+兜底双路径））
-  + 命令接口场景×2（基本命令 / 故障日志与告警），判定链 = 固件场景
-  无关不变式自检 + UART 输出逐场景 golden 文本 diff + tb 核脚本发完；响应时间实测与
-  理论推算逐拍一致。压力测量 `make stress`（位速率 × 帧间隔二维梯子，
-  不作门禁）实测数据见 design.md 7.1 节（含事件缓冲架构前后对比）
-- 已固化的设计要点：墙钟操作（切帧/超时/收敛）须同时满足「FIFO 已追平」
-  与「总线静默超阈」——FIFO 空 ≠ 线上无字节在传（压力实测检出）；
-  超时判定除 tick 墙钟外须有事件驱动兜底（新请求覆盖挂起前补判）——
-  取数积压会把时间分离的总线事件压成处理连续事件（multidev 实测检出）
+  原样保留）与仿真环境侧（mbus_gen 发生器 + gen_script.py + tb_soc 激励
+  设施，上板后被真实总线替换）严格分离，产品 RTL 中无 demo 专用逻辑
+  （design.md 6.1）
+- uart_mon（地址 0x1000_4000）：字节 + 帧错误标志 + 硬件时间戳的记录
+  FIFO，溢出计数不静默丢数据，FIFO 非空电平中断并入 MEI（design.md 4.2）
+- 固件为中断驱动 + 事件缓冲架构：proto 解析核心不接触 MMIO，取数与处理
+  严格分离；主循环 WFI 真睡眠，总线空闲零算力消耗；墙钟操作的固化设计
+  要点（FIFO 追平 + 总线静默双条件、超时事件驱动兜底）见 design.md 6.3
+- 固件双形态（编译宏 DEMO_MODE）：仿真自检形态（GPIO 魔数报码判结）与
+  上板连续运行形态（UART 命令接口：stat/dev/clear/timeout/bitdiv/perf/
+  log/logclear/alarm/help）（design.md 6.2）
+- 诊断能力：切帧/CRC16/FC03 解析、超时诊断、设备画像分账统计、跨帧模式
+  诊断（链路干扰/重试风暴/设备离线-恢复）、自动波特率（误配检测 + 候选
+  表扫描锁定）、故障事件日志 + GPIO 告警（口径见 design.md 6.4）
+- demo（`make demo`）：15 个总线场景 + 命令接口场景×2，判定链 = 固件
+  不变式自检 + UART 输出逐场景 golden diff + tb 核脚本发完（场景名单见
+  design.md 5.6）；压力测量 `make stress` 实测数据见 design.md 7.1
 - PC 端联调脚本（scripts/pc/ 三件套：控制器模拟/设备模拟/结果显示，
-  跨平台）：控制器地址轮询与设备多实例（--dev ADDR:MODE）已支持；
-  设备模拟逐字节 t3.5 切帧（帧间隔小至协议下限不并帧）；自检 =
-  跨平台无硬件 selftest + Linux pty 冒烟（伪终端对跑真实串口 IO
-  路径，含 10ms 背靠背帧分帧回归），真实电气链路收发待阶段二联调
- （操作见 deploy.md 3.5）
+  跨平台）：多设备实例与逐字节切帧自检通过（无硬件 selftest + Linux
+  pty 冒烟），真实电气链路收发待阶段二联调（操作见 deploy.md 3.5）
 
 **验证状态**（各层内容见「测试体系」，原理见 design.md 第 5 节）：
 
@@ -99,7 +75,7 @@ CoreMark 基线：10 次迭代 3,547,147 仿真周期（RV32M 硬乘除；对照
    创建 Pygen Python 环境 `.venv`（uv 拉独立 Python 3.12，不动系统）→
    冒烟验证 `make test` + 单种子 `make rand`
 3. 完成后即可使用全部入口：`make test` / `make act` / `make rtests` / `make rand` /
-   `make randtrap` / `make randirq` / `make bench` / `make demo` / `make stress` / `make wave`
+   `make randtrap` / `make randirq` / `make bench` / `make demo` / `make demo9600` / `make stress` / `make wave`
 
 外部组件固定版本（更换版本须连同测试结果一起评估后再提交，setup.sh 按此清单拉取）：
 `external/` 下（gitignore）：riscv-arch-test commit af6485c（2026-10-11）、
@@ -114,19 +90,20 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 
 | 层 | 内容 | 入口 |
 |---|---|---|
-| 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 0.15 生成期望签名，自检 ELF 在 RTL 上运行 | `make act` |
-| 官方特权测试 | riscv-tests rv32mi（机器模式），tohost 自检；适用 8 项全过，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释 | `make rtests` |
-| 自研测试 | 单元测试 10 项（ALU/乘除法/译码器/BHT/RAS/UART/GPIO/CSR/mtimer/uart_mon）+ 核心冒烟 + SoC 集成 + 故障停机测试 + proto 宿主单元测试（18 用例，宿主 gcc + ASan/UBSan，覆盖长帧/overlong/孤儿回复/addr=0 伪造帧/超时双路径等场景 golden 难到达的边缘形态） | `make test` |
-| 随机指令测试 | riscv-dv Pygen 生成 RV32IM 随机程序 → Sail 黄金参考 → 比对内存签名（含寄存器转储） | `make rand` |
-| 同步陷阱随机化 | 随机程序注入 ecall/ebreak/非法指令/非对齐访存 + 自带陷入 handler 转储现场进签名区 → 同由 Sail 裁决 | `make randtrap` |
-| 中断透明性随机化 | 常规随机程序 + tb 注入引擎按周期计划拉 MTI/MEI 线 → 三轮（Sail 基线/无注入/注入）签名一致 + 陷入计数断言 | `make randirq` |
-| 应用 demo | 总线监听多场景闭环：mbus_gen → uart_mon → sw/app 固件解析 → 不变式自检 + UART 输出逐场景 golden diff（15 总线场景 + 命令接口场景×2；应用相关改动须通过；RTL 迭代门禁见「迭代工作流程」第 3 步） | `make demo` |
-| 应用压力测量 | stress 场景扫「位速率 × 帧间隔」二维梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
-| 真实波特率量级复验 | 15 总线场景 × 9600 量级位周期（bitdiv=5208），核 PASS + STAT 分类计数与高速 golden 一致（上板前补强，不作门禁，全轮约 85 秒） | `make demo9600` |
-| 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数（确定性强，与宿主机负载无关），结果入 `bench/results.csv` | `make bench` |
+| 官方 ISA 合规 | riscv-arch-test（ACT4，基金会官方），Sail 黄金签名比对 | `make act` |
+| 官方特权测试 | riscv-tests rv32mi 机器模式特权测试（适用 8 项，排除项与理由见 `scripts/rtests/run_rtests.sh` 头注释），tohost 自检 | `make rtests` |
+| 自研测试 | RTL 单元/集成/停机测试 + proto 宿主单元测试 | `make test` |
+| 随机指令测试 | riscv-dv Pygen 随机程序，Sail 黄金参考签名比对 | `make rand` |
+| 同步陷阱随机化 | 随机程序注入同步陷阱，Sail 裁决陷入现场 | `make randtrap` |
+| 中断透明性随机化 | 随机程序 + tb 中断注入，三轮签名一致 + 陷入计数断言 | `make randirq` |
+| 应用 demo | 总线监听多场景闭环（15 总线场景 + 命令接口×2）：固件自检 + golden diff | `make demo` |
+| 应用压力测量 | 位速率 × 帧间隔梯子找溢出临界点（评估性质，不作门禁） | `make stress` |
+| 真实波特率量级复验 | 9600 量级位周期复跑 demo 场景（上板前补强，不作门禁） | `make demo9600` |
+| 性能基准 | CoreMark 官方 v1.01，仿真周期数，结果入 `bench/results.csv` | `make bench` |
 
 各层原理、内部机制与判定链的设计动机见 design.md 第 5 节；pygen 适配的
-已知限制也在该节。随机层修复失败后的定点复核用 `bash scripts/rand/replay.sh`
+已知限制也在该节。新增测试层时须三处同步：本表、design.md 5.1 表、
+README「使用」节。随机层修复失败后的定点复核用 `bash scripts/rand/replay.sh`
 （陷阱模式 `RAND_TRAP=1`、中断模式 `RAND_IRQ=1`），强制顺序见工作流程第 3 步。
 
 ## 迭代工作流程
@@ -142,8 +119,8 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 3. **正确性验证**：「测试体系」所列测试层必须全部跑通（当前为 `make test` /
    `make act` / `make rtests` / `make rand` / `make randtrap` / `make randirq`
    / `make demo`，各层内容见「测试体系」表；后续新增测试层自动纳入本门禁，
-   不再逐一修订本条）。demo 层原为「RTL 迭代建议捎带」，现已显式纳入强制
-   门禁：全量仅数秒且确定性强，应用判定链对 RTL 回归同样有效。
+   不再逐一修订本条）。demo 层属强制门禁：全量仅数秒且确定性强，
+   应用判定链对 RTL 回归同样有效。
    任何失败先修复再继续，不得带病跑分。
    **随机层检出分歧时的强制复核顺序**：修复后必须先用出问题的原种子
    复核通过（`bash scripts/rand/replay.sh <种子>`；陷阱模式为
@@ -217,7 +194,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 
 ## 剩余待办
 
-### 当前阶段：应用环节（诊断能力已扩充，准备上板联调）
+### 当前阶段：应用环节（准备上板联调）
 
 **RTL 核心冻结仍然有效**：CPU 核心与既有外设除 bug 修复或用户明确指令外
 不再改动；冻结期间下方「可选优化方向」不立项。应用环节配套的新模块
@@ -240,18 +217,7 @@ riscv-tests commit 7b68f7b（2026-10-13，含 env 子模块 6de71ed）；
 待办（顺序含依赖关系，非纯优先级；每步独立迭代、独立提交，逐项立项
 等用户指令；已完成项从清单移除，成果见「现状」与 git log）：
 
-**缺陷修复项**（外部复核发现，均已在本仓库 RTL 仿真上复现或代码走读
-核实，边界数据为实测值；按下述迭代顺序执行，每个迭代一次提交）：
-
-（编号说明：原待办 1「自动波特率长帧误触发」、待办 2「proto 口径对齐
-两小修」、待办 3「device_sim 高速率切帧」、待办 4「测试层加固」、
-待办 7「PC 脚本 pty 冒烟」已完成（3/7 合并为迭代 C 一次提交），
-待办 5「proto 宿主单元测试」、待办 6「真实波特率量级仿真复验」
-（含候选表 MON_FCLK 自动生成）已完成，
-成果见「现状」与 git log；以下保留原始编号以便与既有文档交叉引用
-对账）
-
-8. **通信质量指标**（视报告篇幅需要，任意位置插入）：总线占用率、
+1. **通信质量指标**（视报告篇幅需要，任意位置插入）：总线占用率、
    帧速率、响应时间抖动等量化指标
 
 PC 脚本升级不单独立项、跟随各功能迭代顺手改：控制器/设备模拟器负责
@@ -265,6 +231,6 @@ PC 脚本升级不单独立项、跟随各功能迭代顺手改：控制器/设�
 
 ### 可选优化方向（冻结期间不立项）
 
-- 性能类：Cache、BTB（分析表明对本核价值有限：条件分支目标译码级可算，直接跳转与返回已被既有机制覆盖，仅剩间接调用场景，暂不立项）
+- 性能类：Cache、BTB（分析表明对本核价值有限：条件分支目标译码级可算，直接跳转与返回已被既有机制覆盖，仅剩间接调用场景）
 - 功能类：其他指令集扩展
 - 每个优化作为一个独立迭代，走上述迭代流程；是否立项等用户明确指令
