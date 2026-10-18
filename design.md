@@ -579,5 +579,33 @@ CoreMark 官方 v1.01，指标为**仿真周期数**（确定性强，与宿主�
   一字符 352 clk ≈ 7 µs）裕量约两个数量级，当前中断驱动取数形态足以应对；若关闭逐帧
   报告打印，吞吐上限还可大幅提升（计算开销仅占总帧处理约 10%）
 
-资源占用与最高时序频率：本仓库范围不含上板，待 FPGA 工程阶段以实际综合
-与布局布线报告为准填入。
+### 7.2 时序定性分析基线（yosys，scripts/timing/）
+
+定位：FMax 优化的**快速定性裁判**——路径构成与相对级数可比，绝对延迟
+与 FMax 终判一律以紫光 PDS 报告为准（约束周期 20ns；PDS 最差路径报告
+Data_arrival_time_is_24.396.csv 的 Path 列是含约 5.5ns 时钟网络延迟的
+绝对到达时刻，不能当周期预算；扣掉时钟网络延迟后数据路径约 18.8ns，
+余量仅 1ns 量级）。入口 `bash scripts/timing/run_timing.sh`，产物在
+build/timing/（不入库），实现要点与避坑记录见脚本与 .ys 头注释。
+
+分析口径：sv2v 转 Verilog-2005 后做通用映射；imem/dmem 保持 $mem
+（对应 BRAM，不摊触发器）；乘法锥替换为零深度直连的「DSP 视图」
+（目标器件上乘法由 DSP 硬核实现，yosys 通用映射会摊成约 30 级 LUT
+淹没关系单周期 FMax 的路径）；完整视图（乘法摊 LUT）仅存档对照。
+
+当前基线：
+
+- DSP 视图 6-LUT 映射：最长路径 27 级，5,992 LUT，4,702 DFF
+- 完整视图：28 级，8,611 LUT（乘法锥约 2,600 LUT）
+- 预 abc 路径构成：top-12 最长路径全部共享同一主干——外设/存储读出
+  → bus_rdata 选择 → load 字节对齐 → exmem 前递 → 操作数 mux → 32 位
+  比较进位链 → 分支判定 → ex_redirect/trap_intr 控制 → pc_next 优先级
+  mux → imem_addr；与 PDS 最差路径（dmem 读出 → bus_rdata → 前递 →
+  32 位进位链 → ex_redirect/trap_intr/wfi_enter → imem_addr）**构成一致**
+  （yosys 起点为更深的 uart_mon FIFO 读出 mux，PDS 起点为 dmem BRAM；
+  yosys 首条经 trap_pc 加法器、PDS 经 wfi_enter，互为邻近分支），
+  故后续迭代用 yosys 做快速定性裁判、PDS 做终判
+
+资源占用定性：乘法锥外主要触发器开销为寄存器堆（1KiB）与 uart_mon
+FIFO（64×42 位）；上板阶段 uart_mon FIFO 可考虑换 BRAM/FIFO 硬核，
+属资源优化，不影响本仓库仿真语义，届时单独立项评估。

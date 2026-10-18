@@ -66,9 +66,15 @@
 CoreMark 基线：10 次迭代 3,547,147 仿真周期（RV32M 硬乘除；对照 RV32I
 软乘版 9,754,301 周期），多次运行逐周期一致（确定可复现）。
 
+时序定性分析基线已建成（scripts/timing/，yosys 6-LUT 映射 + ltp 最长路径）：
+当前 DSP 视图 27 级 / 5,992 LUT，与 PDS 最差路径报告（约束周期 20ns，
+余量约 1ns 量级）路径构成一致——后续时序迭代用 yosys 做快速定性裁判，
+FMax 终判以 PDS 为准（基线数据与口径见 design.md 7.2）。
+
 ## 新机器环境搭建
 
-1. 装系统包：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`
+1. 装系统包：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv yosys`
+   （时序定性分析另需 sv2v，官方仓库无包，archlinuxcn 仓库有：`sudo pacman -S sv2v`）
 2. 克隆本仓库后运行 `bash scripts/setup.sh`（幂等）：检查依赖 → 按固定版本拉取
    `external/` 外部组件（riscv-arch-test / coremark / sail / riscv-dv / riscv-tests）→ 用户级安装 mise
    及 ACT 框架工具链（ruby/bundler/uv，均在用户目录，不改系统与 shell 配置）→
@@ -202,23 +208,19 @@ README「使用」节。随机层修复失败后的定点复核用 `bash scripts
 bench 周期数看 IPC/CoreMark，yosys 定性级数做改动前后的快速对照，
 FMax 终判以紫光 PDS 报告为准。
 
-待办（按依赖顺序，逐项立项、独立迭代提交）：
+待办（按依赖顺序，逐项立项、独立迭代提交；时序定性分析基线已完成，
+结论与口径见「现状」与 design.md 7.2）：
 
-1. **时序定性分析基线**：跑通 yosys 通用映射分析（scripts/timing/，
-   6-LUT 映射级数 + ltp 最长拓扑路径），先跑当前基线，并与紫光 PDS
-   报告的最长路径对照路径构成是否一致（PDS 最差路径导出
-   Data_arrival_time_is_24.396.csv 已入库作对照基准）——一致则后续
-   迭代用 yosys 做快速定性裁判，不一致则记录差异、只信 PDS
-2. **时序迭代一：控制路径重构**：trap_any 同目标合并（pc_next 与
+1. **时序迭代一：控制路径重构**：trap_any 同目标合并（pc_next 与
    ifid/idex/exmem 三处冲刷/气泡 OR 链）、wfi_enter 解耦（pc_next 与
    冲刷用去掉 irq_take/trap_mem 门控的 wfi_req，睡眠锁存保持原门控
    不变，消除 STA 中经 wfi_enter 的不可敏化跳）、soc_top 总线读数据
    mux 的 RAM 分支提前（选择信号互斥，保留默认分支语义）；行为不变
-3. **时序迭代二：RAS 比对去进位链（C1）**：命中 ⟺ rs1_e ∈ {T−imm,
+2. **时序迭代二：RAS 比对去进位链（C1）**：命中 ⟺ rs1_e ∈ {T−imm,
    T−imm+1}（T 为 RAS 预测目标）。ID 级预计算两个候选值随流水线寄存，
    EX 级改双相等树，摘掉比对前的 32 位进位链；等价前提（RAS 表项恒
    4 对齐）须在注释与仿真断言中固化，并复查 ID 级新增路径时序
-4. **BTB 收益量化**：tb 侧加计数器（不动产品 RTL），实测 CoreMark
+3. **BTB 收益量化**：tb 侧加计数器（不动产品 RTL），实测 CoreMark
    全程非预测间接跳转（JALR 且 rs1 非 link 寄存器）重定向次数 ×2 拍
    占总周期的比例，作为 BTB 收益上限，用数据决定是否立项
 

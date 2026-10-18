@@ -19,3 +19,6 @@ external/
 # Python 缓存
 __pycache__/
 *.pyc
+
+# yosys abc 的历史文件（scripts/timing 运行时在仓库根目录产生）
+abc.history

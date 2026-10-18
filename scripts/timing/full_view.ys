@@ -1,0 +1,20 @@
+# yosys 定性时序分析 —— 完整视图（含真实 LUT 乘法阵列）
+# 用途：存档对照——展示乘法阵列在通用 LUT 映射下的真实深度，
+# 反衬 DSP 视图的必要性；同时给出含乘法锥的全量 LUT 统计。
+# 流程与 dsp_view.ys 相同，唯一差别是不做 mul_tie 替换。
+read_verilog build/timing/soc_flat.v
+hierarchy -check -top soc_top
+proc
+memory -nomap
+flatten
+opt_expr
+opt_merge
+opt_dff
+opt_clean
+techmap
+opt_expr
+opt_clean
+abc -lut 6
+clean
+stat
+ltp -noff

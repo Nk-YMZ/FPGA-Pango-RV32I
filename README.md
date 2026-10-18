@@ -49,6 +49,7 @@ make demo9600 # 真实波特率量级复验：15 个总线场景 × 9600 量级�
 make stress  # 应用压力测量：扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
 make lint    # Verilator -Wall lint
+bash scripts/timing/run_timing.sh  # yosys 定性时序分析（6-LUT 级数 + 最长路径，与 PDS 最差路径对照）
 ```
 
 依赖：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`，
