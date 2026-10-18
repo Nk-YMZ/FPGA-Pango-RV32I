@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-# 把 yosys ltp 路径与 PDS 最差路径报告（Data_arrival_time_is_24.396.csv）
-# 并排列出，辅助人工判断「路径构成是否一致」。
+# 把 yosys ltp 路径与 PDS 最差路径报告并排列出，辅助人工判断
+# 「路径构成是否一致」。
 #
 # 注意口径：PDS CSV 的 Path 列是绝对到达时刻（含约 5.5ns 时钟网络延迟），
 # 不能当周期预算；约束周期 20ns。本脚本只做路径构成（经过哪些逻辑）
 # 的对照，不做延迟数值换算。
 #
-# 输入：Data_arrival_time_is_24.396.csv（入库的 PDS 报告）
-#       build/timing/enum_paths.txt（run_timing.sh 阶段 3 产物）
+# 输入：PDS 报告 CSV + build/timing/enum_paths.txt（run_timing.sh 阶段 3 产物）
+#   PDS 报告从 scripts/timing/pds/ 目录取：命令行给路径则用指定文件；
+#   不给则自动选目录里最新的一份（目录只放一份时无脑用它；多份时按
+#   文件修改时间取最新并明示）——以后大迭代跑完 PDS，把新报告丢进该
+#   目录即可，无需改脚本。
 # 判定结论最终由人确认，本脚本只负责提取与并排展示。
 
 import csv
@@ -16,9 +19,21 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PDS_CSV = ROOT / "Data_arrival_time_is_24.396.csv"
+PDS_DIR = ROOT / "scripts/timing/pds"
 ENUM = ROOT / "build/timing/enum_paths.txt"
 SOC_FLAT = ROOT / "build/timing/soc_flat.v"
+
+
+def pick_pds_csv():
+    if len(sys.argv) > 1:
+        return Path(sys.argv[1]).resolve()
+    cands = sorted(PDS_DIR.glob("*.csv"), key=lambda p: p.stat().st_mtime)
+    if not cands:
+        sys.exit(f"未找到 PDS 报告：请把导出的最差路径 CSV 放入 {PDS_DIR}/")
+    return cands[-1]
+
+
+PDS_CSV = pick_pds_csv()
 
 
 def pds_signature():
@@ -67,6 +82,11 @@ def main():
     if not PDS_CSV.exists() or not ENUM.exists():
         sys.exit("缺少输入文件，请先运行 bash scripts/timing/run_timing.sh")
 
+    try:
+        shown = PDS_CSV.relative_to(ROOT)
+    except ValueError:
+        shown = PDS_CSV  # 仓库外的绝对路径原样显示
+    print(f"（对照基准：{shown}）")
     print("== PDS 最差路径骨架（按到达顺序，去门级细节）==")
     for s in pds_signature():
         print(f"   {s}")

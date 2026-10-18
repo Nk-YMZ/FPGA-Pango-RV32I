@@ -11,7 +11,7 @@
 #           映射的副产品且有 ±1 噪声，仅作趋势参考随成绩表记录
 #
 # 用法：bash scripts/timing/run_timing.sh [--quick] [路径枚举条数，默认 12]
-#   --quick 门禁快速模式：只跑门禁轨与参考轨（约 1 分钟），跳过完整视图、
+#   --quick 门禁快速模式：只跑门禁轨与参考轨（约 6 秒），跳过完整视图、
 #           面积统计、路径枚举与 PDS 对照
 # 产物：全部在 build/timing/（gitignore，不入库）：
 #   soc_flat.v          sv2v 翻译件（经 fix_imem.py 修复 imem 建模）
