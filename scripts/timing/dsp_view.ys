@@ -1,8 +1,10 @@
 # yosys 定性时序分析 —— DSP 视图综合（待办一）
 # 流程要点（每步选择的理由）：
-#   - memory -nomap：imem/dmem 保持 $mem 单元（对应 FPGA BRAM），
-#     不摊成触发器阵列；$mem 读口在 ltp 中是组合节点，对应 PDS 报告的
-#     DRM tco 起点形态
+#   - 输入 soc_flat.v 已经 fix_imem.py 修复：imem 存储数组恢复 reg 并带
+#     哑写口（sv2v 会把只读数组降级为 wire，导致存储器建模丢失、指令侧
+#     逻辑被常量折叠——修复后 imem/dmem/寄存器堆/分支预测表共 4 个 $mem）
+#   - memory -nomap：存储器保持 $mem 单元（对应 FPGA BRAM），不摊成
+#     触发器阵列；$mem 读口在 ltp 中是组合节点，对应 BRAM tco 起点形态
 #   - mul_tie.v：把 $mul 乘法锥替换为零深度直连——目标器件上乘法由
 #     DSP 硬核实现（PDS 最差路径中无乘法阵列），yosys 通用映射却会摊成
 #     约 30 级 LUT，淹没关系单周期 FMax 的真实关键路径
