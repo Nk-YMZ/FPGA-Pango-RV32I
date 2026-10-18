@@ -189,6 +189,7 @@ MEI 聚合（irq_en 已由固件启用：中断驱动取数，见 6.2 节）。
 | 应用压力测量 | stress 场景扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁） | `make stress` |
 | 真实波特率量级复验 | 15 总线场景 × 9600 量级位周期（50 MHz → bitdiv=5208），核 PASS + STAT 分类计数与高速 golden 一致（上板前补强，不作门禁） | `make demo9600` |
 | 性能基准 | CoreMark 官方 v1.01，指标为仿真周期数，结果入 bench/results.csv | `make bench` |
+| 时序定性门禁 | yosys 6-LUT 映射 + ltp 最长路径，DSP 视图级数比对基线（RTL 迭代提交门禁，原理与口径见 7.2），结果入 scripts/timing/results.csv | `bash scripts/timing/run_timing.sh [--quick]` |
 
 验证总规模：ACT 47/47、rv32mi 8/8、自研测试全绿、三层随机化各 100 个
 种子无一失败、应用 demo 通过。
@@ -585,17 +586,24 @@ CoreMark 官方 v1.01，指标为**仿真周期数**（确定性强，与宿主�
 与 FMax 终判一律以紫光 PDS 报告为准（约束周期 20ns；PDS 最差路径报告
 Data_arrival_time_is_24.396.csv 的 Path 列是含约 5.5ns 时钟网络延迟的
 绝对到达时刻，不能当周期预算；扣掉时钟网络延迟后数据路径约 18.8ns，
-余量仅 1ns 量级）。入口 `bash scripts/timing/run_timing.sh`，产物在
-build/timing/（不入库），实现要点与避坑记录见脚本与 .ys 头注释。
+余量仅 1ns 量级）。入口 `bash scripts/timing/run_timing.sh`：带 `--quick` 为门禁快速
+模式（约 2 分钟，只出 DSP 视图最长路径 LUT 级数）；不带为全量分析
+（约 4 分钟，增加 top-12 路径枚举与 PDS 对照）。迭代门禁：级数不得
+比本节基线更差，特殊情况须获批并在提交说明解释（规则见 AGENTS.md
+迭代工作流程第 4 步）。每次运行自动把日期/提交号/两视图级数与 LUT
+数追加到 scripts/timing/results.csv（随代码入库，供版本间比对，
+与 bench/results.csv 同一套路）。产物在 build/timing/（不入库），
+实现要点、避坑记录与已知限制见脚本与 .ys 头注释。
 
 分析口径：sv2v 转 Verilog-2005 后做通用映射；imem/dmem 保持 $mem
 （对应 BRAM，不摊触发器）；乘法锥替换为零深度直连的「DSP 视图」
 （目标器件上乘法由 DSP 硬核实现，yosys 通用映射会摊成约 30 级 LUT
 淹没关系单周期 FMax 的路径）；完整视图（乘法摊 LUT）仅存档对照。
 
-当前基线：
+当前基线（迭代门禁比对值，yosys 0.66 + sv2v 0.0.13 下测得；
+工具链版本变化须重测）：
 
-- DSP 视图 6-LUT 映射：最长路径 27 级，5,992 LUT，4,702 DFF
+- **DSP 视图 6-LUT 映射最长路径：27 级（门禁指标）**，5,992 LUT，4,702 DFF
 - 完整视图：28 级，8,611 LUT（乘法锥约 2,600 LUT）
 - 预 abc 路径构成：top-12 最长路径全部共享同一主干——外设/存储读出
   → bus_rdata 选择 → load 字节对齐 → exmem 前递 → 操作数 mux → 32 位

@@ -5,7 +5,9 @@
 # 最差路径报告（Data_arrival_time_is_24.396.csv）对照所需的一切数据。
 # 定位为「快速定性裁判」：路径构成与相对级数可比，绝对延迟一律以 PDS 为准。
 #
-# 用法：bash scripts/timing/run_timing.sh [路径枚举条数，默认 12]
+# 用法：bash scripts/timing/run_timing.sh [--quick] [路径枚举条数，默认 12]
+#   --quick 门禁快速模式：只跑阶段 0~2（约 2 分钟），输出 DSP 视图最长
+#           路径 LUT 级数供迭代门禁比对，跳过枚举与 PDS 对照
 # 产物：全部在 build/timing/（gitignore，不入库）：
 #   soc_flat.v          sv2v 转换的 Verilog-2005 网表
 #   synth_dsp.log       DSP 视图综合 + 预 abc 最长路径（信号名可辨，主对照依据）
@@ -17,6 +19,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 B=build/timing
+QUICK=0
+[ "${1:-}" = "--quick" ] && { QUICK=1; shift; }
 N=${1:-12}
 
 RTL="rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv \
@@ -37,6 +41,23 @@ yosys -l "$B/abc_dsp.log"  -p "read_rtlil $B/dsp_net.il; abc -lut 6; clean; stat
 yosys -l "$B/abc_full.log" scripts/timing/full_view.ys &
 yosys -l "$B/area.log"     scripts/timing/area.ys &
 wait
+
+# 门禁摘要：DSP 视图最长路径 LUT 级数（迭代门禁的比对指标）
+depth=$(grep -oP 'length=\d+' "$B/abc_dsp.log" | head -1)
+echo "== DSP 视图最长路径：$depth（迭代门禁比对此数，基线见 design.md 7.2）=="
+
+# 成绩记录：与 bench/results.csv 同一套路，每次运行追加一行，
+# 供版本间比对（列含义见表头；commit 的 -dirty 判定同 run_bench.sh）
+CSV=scripts/timing/results.csv
+dsp_lut=$(grep -oP '^\s+\K\d+(?=\s+\$lut$)' "$B/abc_dsp.log" | head -1)
+full_depth=$(grep -oP 'length=\d+' "$B/abc_full.log" | head -1 | grep -oP '\d+')
+full_lut=$(grep -oP '^\s+\K\d+(?=\s+\$lut$)' "$B/abc_full.log" | head -1)
+commit=$(git rev-parse --short HEAD)
+dirty=$( [ -z "$(git status --porcelain)" ] || echo "-dirty" )
+[ -f "$CSV" ] || echo "date,commit,dsp_depth,dsp_lut,full_depth,full_lut" > "$CSV"
+echo "$(date +%F),$commit$dirty,${depth#length=},$dsp_lut,$full_depth,$full_lut" >> "$CSV"
+
+[ "$QUICK" = 1 ] && { echo "===== 快速模式完成（跳过枚举与对照） ====="; exit 0; }
 
 echo "== 阶段 3：top-$N 路径枚举（DSP 视图，逐条删端点并清扫悬空逻辑，每条约 40 秒）=="
 : > "$B/enum_paths.txt"
