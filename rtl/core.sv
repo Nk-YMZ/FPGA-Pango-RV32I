@@ -93,25 +93,29 @@ module core #(
   logic        trap_mem;       // MEM 级故障触发陷入（非对齐/总线错误）
   logic        trap_cti;       // taken 分支/跳转目标非对齐触发陷入（取指非对齐）
   logic        irq_take;       // EX 级采样到中断，触发中断陷入
-  logic        wfi_enter;      // WFI 在 EX 级进入睡眠
+  logic        trap_any;       // 四种陷入（trap_mem/trap_ex/trap_cti/irq_take）的合并：
+                               // 目标同为 mtvec 入口、冲刷动作相同，合并缩短控制路径
+  logic        wfi_enter;      // WFI 在 EX 级进入睡眠（仅用于睡眠锁存）
+  logic        wfi_req;        // WFI 请求（不带 irq_take/trap_mem 门控）：驱动 pc_next 与冲刷
   logic        wfi_sleep;      // WFI 睡眠中（冻结取指，等待中断唤醒）
   wire  [2:0]  ip_masked;      // mip & mie 的 {MEI, MSI, MTI}（csr_file 输出）
   wire         mie_status;     // mstatus.MIE
 
   // 下一取指地址。复位期间固定为 RESET_PC，保证 BRAM 在复位释放沿采到首地址；
   // 暂停/停机/WFI 睡眠时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
-  // 陷入（含中断）优先级最高：MEM 级故障年长于 EX 级异常标记与中断。
+  // 陷入（含中断）优先级最高：四种陷入目标同为 mtvec 入口，合并为 trap_any 占一级，
+  // 内部优先级（MEM 故障 > EX 异常 > 中断）体现在 trap_code，不影响 pc_next。
   // WFI 进入睡眠当拍把 pc 定为 wfi+4（后续指令已被冲刷，唤醒后从此重取）。
+  // pc_next 与冲刷用不带 irq_take/trap_mem 门控的 wfi_req：同拍有陷入时陷入分支
+  // 本来就优先、本来就冲刷，门控冗余，去掉可缩短控制路径；睡眠锁存仍用带门控的
+  // wfi_enter，保证被陷入打断的 WFI 不会睡着。
   wire [31:0] csr_trap_pc;
   wire        wfi_wake = (ip_masked != 3'b000);   // mip&mie 非零即唤醒（不看 MIE）
   wire        wfi_wait = wfi_sleep && !wfi_wake;
   wire [31:0] pc_next = !rst_n                  ? RESET_PC :
                         (stall_young || draining || halted || wfi_wait) ? pc :
-                        trap_mem                ? csr_trap_pc :
-                        trap_ex                 ? csr_trap_pc :
-                        trap_cti                ? csr_trap_pc :
-                        irq_take                ? csr_trap_pc :
-                        wfi_enter               ? idex_pc + 32'd4 :
+                        trap_any                ? csr_trap_pc :
+                        wfi_req                 ? idex_pc + 32'd4 :
                         ex_redirect             ? ex_redirect_target :
                         id_redirect             ? id_redirect_target :
                                                   pc + 32'd4;
@@ -135,7 +139,7 @@ module core #(
     end else if (stall_young) begin
       // 保持
     end else if (ex_redirect || id_redirect || id_halt_accept || draining
-                 || trap_ex || trap_mem || trap_cti || irq_take || wfi_enter) begin
+                 || trap_any || wfi_req) begin
       ifid_instr <= NOP;                    // 冲刷 / 停机后停止取指
       ifid_valid <= 1'b0;
     end else begin
@@ -188,9 +192,9 @@ module core #(
   wire ret_predict_d = ret_d && !ras_empty;
 
   wire ras_push_d = call_d        && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_ex && !trap_mem && !trap_cti && !irq_take;
+                    && !trap_any;
   wire ras_pop_d  = ret_predict_d && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_ex && !trap_mem && !trap_cti && !irq_take;
+                    && !trap_any;
 
   ras #(.DEPTH(RAS_DEPTH)) ras_i (
     .clk          (clk),
@@ -209,8 +213,7 @@ module core #(
   // （JAL 目标译码即确定；返回跳转以 RAS 栈顶为预测目标）
   assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
                                || ret_predict_d)
-                              && !draining && !halted && !ex_redirect && !trap_ex && !trap_mem
-                              && !trap_cti && !irq_take;
+                              && !draining && !halted && !ex_redirect && !trap_any;
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
   // 异常请求（被 EX 级重定向或年长陷入杀死时不接受——说明它在错误路径上）
@@ -224,8 +227,7 @@ module core #(
                      (idex_ctrl.is_csr && idex_imm[11:0] == 12'h305 &&
                       (idex_ctrl.funct3[1:0] == 2'b01 || idex_rs1 != 5'd0));
   wire halt_req_d = ctrl_d.is_ecall || ctrl_d.is_ebreak || ctrl_d.illegal;
-  wire exc_ok_d   = halt_req_d && !ex_redirect && !stall_young
-                    && !trap_ex && !trap_mem && !trap_cti && !irq_take;
+  wire exc_ok_d   = halt_req_d && !ex_redirect && !stall_young && !trap_any;
   assign id_halt_accept = exc_ok_d && !mtvec_cfg_d;
 
   halt_code_t halt_code_d;
@@ -288,7 +290,7 @@ module core #(
       idex_exc_tval   <= 32'd0;
     end else if (stall_young) begin
       // 保持
-    end else if (ex_redirect || trap_ex || trap_mem || trap_cti || irq_take || wfi_enter) begin
+    end else if (ex_redirect || trap_any || wfi_req) begin
       idex_ctrl       <= '0;                // 冲刷为气泡
       idex_pred_taken <= 1'b0;
       idex_ras_pop    <= 1'b0;
@@ -401,8 +403,11 @@ module core #(
   // ---- WFI：EX 级进入睡眠，冻结取指；mip&mie 非零（不看 MIE）唤醒 ----
   // 进入当拍冲刷 IF/ID、pc 定为 wfi+4；唤醒后正常流动，若 MIE=1 且中断
   // 仍未撤则随后按中断陷入（被唤醒的第一条指令在 EX 级被采样，不多执行）。
-  assign wfi_enter = idex_ctrl.is_wfi && idex_valid && !stall_young && !draining
-                     && !halted && !irq_take && !trap_mem;
+  // wfi_req 不带 irq_take/trap_mem 门控（供 pc_next 与冲刷用，见 pc_next 注释）；
+  // wfi_enter 保留门控，仅驱动睡眠锁存——被陷入打断的 WFI 不得入睡
+  assign wfi_req   = idex_ctrl.is_wfi && idex_valid && !stall_young && !draining
+                     && !halted;
+  assign wfi_enter = wfi_req && !irq_take && !trap_mem;
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n)          wfi_sleep <= 1'b0;
@@ -410,7 +415,7 @@ module core #(
     else if (wfi_enter)  wfi_sleep <= 1'b1;
   end
 
-  wire        trap_en   = trap_ex || trap_mem || irq_take || trap_cti;
+  assign      trap_any  = trap_mem || trap_ex || trap_cti || irq_take;
   wire        trap_intr = irq_take;
   wire [4:0]  trap_code = irq_take ? irq_code :
                           trap_mem ? (mem_req && misaligned
@@ -433,7 +438,7 @@ module core #(
     .wdata       (csr_wdata_e),
     .mret        (mret_commit_e),
     .mepc        (csr_mepc),
-    .trap_en     (trap_en),
+    .trap_en     (trap_any),
     .trap_intr   (trap_intr),
     .trap_code   (trap_code),
     .trap_mepc   (trap_mepc),
@@ -568,7 +573,7 @@ module core #(
       exmem_addr_early <= 1'b0;
       exmem_halt     <= HALT_NONE;
     end else if (!stall) begin
-      if (muldiv_stall || trap_ex || trap_mem || trap_cti || irq_take || wfi_enter) begin
+      if (muldiv_stall || trap_any || wfi_req) begin
         // 乘除等待 / 陷入（含中断、取指非对齐）/ WFI 睡眠向 MEM 级注入气泡，MEM/WB 继续推进
         exmem_ctrl       <= '0;
         exmem_addr_early <= 1'b0;

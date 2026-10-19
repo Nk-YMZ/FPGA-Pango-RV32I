@@ -1,2 +1,4 @@
 date,commit,gate_depth,gate_lut,ref_depth,ref_lut,full_depth,full_lut
 2026-10-19,08fe751-dirty,21,6453,30,5499,21,9713
+2026-10-19,3da6b63,21,6453,30,5499,,
+2026-10-19,3da6b63-dirty,20,6475,29,6014,20,9653

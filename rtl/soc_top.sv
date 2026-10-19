@@ -72,7 +72,10 @@ module soc_top #(
                      sel_mon  ? mon_ready : 1'b1;
   assign bus_err   = bus_valid && !(sel_dmem || sel_gpio || sel_uart || sel_cctr || sel_mtim
                                     || sel_mon);
-  assign bus_rdata = sel_gpio ? gpio_rdata :
+  // 各选择信号互斥（一个地址只落一个窗口），RAM 分支提到链首缩短最常用的
+  // 读数路径；未映射地址的默认输出保持 dmem_rdata 不变
+  assign bus_rdata = sel_dmem ? dmem_rdata :
+                     sel_gpio ? gpio_rdata :
                      sel_uart ? uart_rdata :
                      sel_cctr ? cctr_rdata :
                      sel_mtim ? mtim_rdata :
