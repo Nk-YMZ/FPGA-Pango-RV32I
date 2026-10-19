@@ -87,6 +87,43 @@ module tb_soc;
   always @(posedge clk) if (running && jalr_unpred_e)
     jalr_unpred_cnt <= jalr_unpred_cnt + 1;
 
+  // ---- 性能候选收益量化（+PERFSTAT 启用打印；只读观察的测量设施，不影响判定）----
+  // 候选一（IF 级预测：取指级 BTB + RAS 前置）：统计 ID 级重定向次数——
+  // JAL 直转、分支预测 taken、RAS 返回命中三类，预测全对也各付 1 拍气泡
+  // （IF 级顺取被冲），取指级预测可消除；次数×1 占总周期比例即收益上限。
+  // 候选二（store 拍放开 load 预取）：统计「EX 级 load 的预取因 MEM 级
+  // store 占用数据口地址线而放弃」的次数——此类 load 回退 2 拍路径白付
+  // 1 拍，次数×1 即收益。
+  // 判定手法同 BTBSTAT：指令按 ifid_pc/idex_pc 从 imem 读回解码；
+  // idex_valid 排除冲刷气泡拍；!stall_young 保证停顿期间（id_redirect 与
+  // 总线请求跨拍保持）不重复计数；!trap_any 排除陷入冲刷拍（该拍 EX 指令
+  // 被撤销，不会进入 MEM 付回退代价）；!wfi_wait 排除 WFI 睡眠期（睡眠
+  // 期间 pc 被 wfi_wait 优先保持，id_redirect 反复拉起并不发生真重定向，
+  // 应用固件大部分时间在睡觉，不门控会严重虚增）。所探信号均为核心端口
+  // 或非结构内部信号，SV/Verilog（rtl_v）两种 DUT 源码下层级路径均有效。
+  int  c1_jal_cnt, c1_br_cnt, c1_ret_cnt, c1_other_cnt, c2_stblk_cnt, wfi_cnt;
+  /* verilator lint_off UNUSEDSIGNAL */   // 只需操作码字段，其余位天然未用
+  wire [31:0] id_instr = dut.imem_i.mem[dut.core_i.ifid_pc[IMEM_AW+1:2]];
+  /* verilator lint_on UNUSEDSIGNAL */
+  wire        c1_evt = dut.core_i.id_redirect && !dut.core_i.stall_young &&
+                       !dut.core_i.wfi_wait;
+  wire        c2_evt = dut.core_i.idex_valid && !dut.core_i.stall_young &&
+                       !dut.core_i.trap_any &&
+                       ex_instr[6:0] == 7'b0000011 &&              // EX 级为 load
+                       dut.core_i.dmem_valid && dut.core_i.dmem_write;  // MEM 级 store
+  always @(posedge clk) if (running) begin
+    if (c1_evt) begin
+      case (id_instr[6:0])
+        7'b1101111: c1_jal_cnt <= c1_jal_cnt + 1;   // JAL 直转
+        7'b1100011: c1_br_cnt  <= c1_br_cnt + 1;    // 分支预测 taken
+        7'b1100111: c1_ret_cnt <= c1_ret_cnt + 1;   // JALR（RAS 返回命中）
+        default:    c1_other_cnt <= c1_other_cnt + 1;  // 不应出现，打印出来供审计
+      endcase
+    end
+    if (c2_evt) c2_stblk_cnt <= c2_stblk_cnt + 1;
+    if (dut.core_i.wfi_wait) wfi_cnt <= wfi_cnt + 1;
+  end
+
   // ---- ACT tohost 监视（+TOHOST=<addr> 启用）----
   localparam int MEM_AW = $clog2(MEM_BYTES / 4);
 
@@ -264,6 +301,7 @@ module tb_soc;
     bit    timeoutpass;
     bit    gpioend;
     bit    btbstat;
+    bit    perfstat;
     int    timeout_cycles;
     int    errors;
     string uartlog_file;
@@ -272,6 +310,8 @@ module tb_soc;
     mispredict_cnt = 0;
     cycle_cnt = 0;
     jalr_unpred_cnt = 0;
+    c1_jal_cnt = 0; c1_br_cnt = 0; c1_ret_cnt = 0; c1_other_cnt = 0;
+    c2_stblk_cnt = 0; wfi_cnt = 0;
     errors = 0;
 
     if (!$value$plusargs("HEX=%s", hex)) hex = "build/test_isa.hex";
@@ -312,6 +352,7 @@ module tb_soc;
     // 须与 +MAGIC 同用；结束后的魔数核对复用下方既有逻辑
     gpioend = $test$plusargs("GPIOEND");
     btbstat = $test$plusargs("BTBSTAT");
+    perfstat = $test$plusargs("PERFSTAT");
     if (gpioend && !magic_en)
       $fatal(1, "tb_soc: +GPIOEND 需与 +MAGIC=<魔数> 同用");
     if (irq_cnt_addr != 0 && irq_exp < 0)
@@ -355,6 +396,17 @@ module tb_soc;
     if (btbstat)
       $display("tb_soc: BTB 量化：未预测间接跳转（JALR 且 rs1 非 x1/x5）重定向 %0d 次，按 2 拍/次估算代价 %0d 拍（总周期 %0d）",
                jalr_unpred_cnt, jalr_unpred_cnt * 2, cycle_cnt);
+    if (perfstat) begin
+      $display("tb_soc: PERFSTAT 候选一(IF级预测)：ID 级重定向 JAL=%0d 分支taken=%0d RAS返回=%0d 其他=%0d，合计 %0d 次 ×1 拍 ≈ 收益上限 %.2f%%（总周期 %0d）",
+               c1_jal_cnt, c1_br_cnt, c1_ret_cnt, c1_other_cnt,
+               c1_jal_cnt + c1_br_cnt + c1_ret_cnt + c1_other_cnt,
+               100.0 * (c1_jal_cnt + c1_br_cnt + c1_ret_cnt + c1_other_cnt) / cycle_cnt,
+               cycle_cnt);
+      $display("tb_soc: PERFSTAT 候选二(store放开预取)：EX 级 load 预取被 MEM 级 store 放弃 %0d 次 ×1 拍 ≈ 收益上限 %.2f%%",
+               c2_stblk_cnt, 100.0 * c2_stblk_cnt / cycle_cnt);
+      $display("tb_soc: PERFSTAT 参考：WFI 睡眠 %0d 拍（占比 %.2f%%）",
+               wfi_cnt, 100.0 * wfi_cnt / cycle_cnt);
+    end
     if (plan_file != "")
       $display("tb_soc: 注入执行 %0d/%0d 条", plan_done_cnt, plan_n);
 
