@@ -104,15 +104,20 @@ module uart_mon (
 	reg [41:0] fifo [0:FIFO_DEPTH - 1];
 	reg [PTR - 1:0] wr_ptr;
 	reg [PTR - 1:0] rd_ptr;
+	reg [41:0] head_r;
 	wire full = count == DEPTH_C;
 	wire push_ok = push && !full;
 	wire pop = (valid && !write) && (addr == 5'h0c);
 	wire pop_ok = pop && (count != 0);
+	wire [41:0] push_rec = {1'b0, !rxd_s, rshift, now_cnt};
+	wire [PTR - 1:0] rd_ptr_next = (pop_ok ? rd_ptr + 1'b1 : rd_ptr);
+	wire head_bypass = push_ok && (rd_ptr_next == wr_ptr);
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n) begin
 			wr_ptr <= 1'sb0;
 			rd_ptr <= 1'sb0;
 			count <= 1'sb0;
+			head_r <= 1'sb0;
 			ovf_cnt <= 32'd0;
 			ovf_sticky <= 1'b0;
 		end
@@ -120,12 +125,13 @@ module uart_mon (
 			wr_ptr <= 1'sb0;
 			rd_ptr <= 1'sb0;
 			count <= 1'sb0;
+			head_r <= 1'sb0;
 			ovf_cnt <= 32'd0;
 			ovf_sticky <= 1'b0;
 		end
 		else begin
 			if (push_ok) begin
-				fifo[wr_ptr] <= {1'b0, !rxd_s, rshift, now_cnt};
+				fifo[wr_ptr] <= push_rec;
 				wr_ptr <= wr_ptr + 1'b1;
 			end
 			if (push && full) begin
@@ -134,13 +140,15 @@ module uart_mon (
 			end
 			if (pop_ok)
 				rd_ptr <= rd_ptr + 1'b1;
+			if (pop_ok || (push_ok && (count == 0)))
+				head_r <= (head_bypass ? push_rec : fifo[rd_ptr_next]);
 			case ({push_ok, pop_ok})
 				2'b10: count <= count + 1'b1;
 				2'b01: count <= count - 1'b1;
 				default: count <= count;
 			endcase
 		end
-	wire [41:0] head = fifo[rd_ptr];
+	wire [41:0] head = head_r;
 	function automatic [8:0] sv2v_cast_9;
 		input reg [8:0] inp;
 		sv2v_cast_9 = inp;

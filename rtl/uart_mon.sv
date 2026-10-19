@@ -23,7 +23,11 @@
 // 中断：irq = irq_en & FIFO 非空（电平），软件弹空 FIFO 或清 irq_en 撤销。
 // 溢出策略：FIFO 满丢弃新字节（保旧数据），OVF_CNT 累加且 STATUS.bit1 粘住，
 // 由 CTRL.clear 清除——宁可明确报溢出也不静默错位。
-// FIFO 为寄存器堆异步读实现，深度参数化；默认 64 条对监听流量裕量充足，
+// FIFO 为寄存器堆实现，深度参数化；读头预寄存到 head_r（时序迭代三）：
+// TSTAMP/DATA 读直出寄存器，原读路径上的深度选 1 组合 mux 移到 head_r
+// 写入侧，不再挡总线读数路径。head_r 装载的两个写入旁路：空→首条、弹出
+// 后下一条恰是本拍写入位置时，阵列里还是旧值，须直取本拍写入数据。
+// 默认 64 条对监听流量裕量充足，
 // 若实测缓冲压力不足再评估加大深度或改同步读 BRAM FIFO。
 `default_nettype none
 
@@ -134,28 +138,37 @@ module uart_mon #(
   logic [41:0] fifo[FIFO_DEPTH];
   logic [PTR-1:0] wr_ptr, rd_ptr;
   logic [PTR:0]  count;
+  logic [41:0]  head_r;                 // 读头预寄存（TSTAMP/DATA 直出）
 
   wire full    = (count == DEPTH_C);
   wire push_ok = push && !full;
   wire pop     = valid && !write && addr == 5'h0C;
   wire pop_ok  = pop && (count != 0);
 
+  wire [41:0] push_rec = {1'b0, !rxd_s, rshift, now_cnt};
+  // 读头推进后的下一条位置；该位置恰是本拍写入位置时（空→首条，或弹出后
+  // 仅剩本拍写入这一条），阵列里还是旧值，装载须旁路本拍写入数据
+  wire [PTR-1:0] rd_ptr_next = pop_ok ? rd_ptr + 1'b1 : rd_ptr;
+  wire           head_bypass = push_ok && (rd_ptr_next == wr_ptr);
+
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       wr_ptr     <= '0;
       rd_ptr     <= '0;
       count      <= '0;
+      head_r     <= '0;
       ovf_cnt    <= 32'd0;
       ovf_sticky <= 1'b0;
     end else if (clear) begin
       wr_ptr     <= '0;
       rd_ptr     <= '0;
       count      <= '0;
+      head_r     <= '0;
       ovf_cnt    <= 32'd0;
       ovf_sticky <= 1'b0;
     end else begin
       if (push_ok) begin
-        fifo[wr_ptr] <= {1'b0, !rxd_s, rshift, now_cnt};
+        fifo[wr_ptr] <= push_rec;
         wr_ptr       <= wr_ptr + 1'b1;
       end
       if (push && full) begin                 // 溢出：丢新字节，计数并锁存
@@ -163,6 +176,9 @@ module uart_mon #(
         ovf_sticky <= 1'b1;
       end
       if (pop_ok) rd_ptr <= rd_ptr + 1'b1;
+      // 读头预寄存装载：弹出（下一条顶上）或空→首条时装载
+      if (pop_ok || (push_ok && count == 0))
+        head_r <= head_bypass ? push_rec : fifo[rd_ptr_next];
       case ({push_ok, pop_ok})
         2'b10:   count <= count + 1'b1;
         2'b01:   count <= count - 1'b1;
@@ -172,7 +188,7 @@ module uart_mon #(
   end
 
   // ================= 寄存器读 =================
-  wire [41:0] head = fifo[rd_ptr];
+  wire [41:0] head = head_r;            // 直出读头寄存器，空时读 0 由 count 门控
 
   always_comb begin
     case (addr)
