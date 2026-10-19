@@ -1,5 +1,5 @@
 // uart_mon 单元测试：寄存器接口、字节接收与时间戳、帧错误标记、
-// 使能门控、FIFO 溢出计数、clear 语义、中断电平
+// 使能门控、FIFO 溢出计数、clear 语义、中断电平、读写同拍竞争矩阵
 // 测试实例化 FIFO_DEPTH=8 以便溢出测试；BITDIV 默认 32，测试中改为 8
 `timescale 1ns/1ps
 `default_nettype none
@@ -54,6 +54,49 @@ module tb_uart_mon;
   task automatic mon_pop(output logic [31:0] ts, output logic [31:0] dat);
     reg_read(5'h08, ts);
     reg_read(5'h0C, dat);
+  endtask
+
+  // ---- 读写同拍竞争矩阵（时序迭代三读头预寄存的定向回归网） ----
+  // 目的：让总线 pop（DATA 读）与串口字节落记录恰好打在同一个 posedge，
+  // 覆盖 FIFO 深度 0/1/2/满 四种情形。对齐由构造保证：dut.push 在落记录
+  // 那一拍内已组合拉高，在 negedge 看到它再置 valid，下一 posedge 即同拍，
+  // 不依赖发字节的相位。当前组合读实现下本矩阵同样应全部通过；
+  // 读头预寄存改动若漏掉写入旁路（空→首条、弹后同拍写入顶上），这里能抓住。
+
+  // 发 n 个背靠背字节预填 FIFO（相位随意），完成后核条数
+  task automatic fill_fifo(input int n, input logic [7:0] base);
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] rd;   // 只用条数段 [24:16]
+    /* verilator lint_on UNUSEDSIGNAL */
+    for (int i = 0; i < n; i++) begin serial_tx(base + 8'(i)); #(BIT_NS); end
+    reg_read(5'h04, rd);
+    if (rd[24:16] !== 9'(n)) begin
+      errors++; $display("FAIL: 预填后条数=%0d 期望 %0d", rd[24:16], n);
+    end
+  endtask
+
+  // 在落记录拍发起 DATA 读（pop），dat 为同拍弹出值
+  task automatic pop_at_push(output logic [31:0] dat);
+    @(negedge clk);
+    while (dut.push !== 1'b1) @(negedge clk);
+    valid = 1; write = 0; addr = 5'h0C;
+    #1 dat = rdata;                 // 写入拍之前采样，组合读出旧读头
+    @(negedge clk); valid = 0;
+  endtask
+
+  // 排空并核对剩余记录序列（数据递增、无标志位），尾查 FIFO 确空
+  task automatic drain_check(input int n, input logic [7:0] base, input string tag);
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] ts, dt;   // 高位与戳不核（戳差另有专测），只核数据/标志/非空位
+    /* verilator lint_on UNUSEDSIGNAL */
+    for (int i = 0; i < n; i++) begin
+      mon_pop(ts, dt);
+      if (dt[7:0] !== base + 8'(i) || dt[9:8] !== 2'b00) begin
+        errors++; $display("FAIL: %s 第 %0d 条=%h 期望 %h 标志 0", tag, i, dt, base + 8'(i));
+      end
+    end
+    reg_read(5'h04, dt);
+    if (dt[0] !== 1'b0) begin errors++; $display("FAIL: %s 排空后 FIFO 应为空", tag); end
   endtask
 
   logic [31:0] rd, ts0, ts1, d0, now0, now1;
@@ -178,6 +221,45 @@ module tb_uart_mon;
         if (d0[7:0] !== 8'h77) begin errors++; $display("FAIL: clear 后收到 %h 期望 77", d0[7:0]); end
       end
     join
+
+    // ---- 读写同拍竞争矩阵：pop 与字节落记录同一拍 × 深度 0/1/2/满 ----
+    // d=0：空 FIFO 同拍 pop 被忽略（空读 DATA 得 0），新字节照常落记录
+    fork
+      serial_tx(8'hD0);
+      pop_at_push(d0);
+    join
+    if (d0 !== 32'd0) begin errors++; $display("FAIL: 同拍d0 空 pop 应读 0，得 %h", d0); end
+    drain_check(1, 8'hD0, "同拍d0");
+
+    // d=1：同拍 pop+push，弹出的是旧记录 A1，新字节 A2 顶上读头
+    fill_fifo(1, 8'hA1);
+    fork
+      serial_tx(8'hA2);
+      pop_at_push(d0);
+    join
+    if (d0[7:0] !== 8'hA1) begin errors++; $display("FAIL: 同拍d1 pop=%h 期望 A1", d0); end
+    drain_check(1, 8'hA2, "同拍d1");
+
+    // d=2：同拍 pop+push，下一条是阵列里的旧记录（不经写入旁路）
+    fill_fifo(2, 8'hB1);
+    fork
+      serial_tx(8'hB3);
+      pop_at_push(d0);
+    join
+    if (d0[7:0] !== 8'hB1) begin errors++; $display("FAIL: 同拍d2 pop=%h 期望 B1", d0); end
+    drain_check(2, 8'hB2, "同拍d2");
+
+    // 满：同拍 pop+push，push 溢出丢弃（OVF_CNT+1），pop 照常弹出旧读头
+    fill_fifo(8, 8'hC0);
+    fork
+      serial_tx(8'hC8);
+      pop_at_push(d0);
+    join
+    if (d0[7:0] !== 8'hC0) begin errors++; $display("FAIL: 同拍满 pop=%h 期望 C0", d0); end
+    drain_check(7, 8'hC1, "同拍满");
+    reg_read(5'h10, rd);
+    if (rd !== 32'd1) begin errors++; $display("FAIL: 同拍满 OVF_CNT=%0d 期望 1", rd); end
+    reg_write(5'h00, 32'h5);          // clear：清溢出计数/锁存，恢复干净状态
 
     if (errors == 0) $display("tb_uart_mon: PASS");
     else             $fatal(1, "tb_uart_mon: FAILED (%0d 项错误)", errors);
