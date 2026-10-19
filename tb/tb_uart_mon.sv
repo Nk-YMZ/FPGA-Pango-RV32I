@@ -1,5 +1,5 @@
 // uart_mon 单元测试：寄存器接口、字节接收与时间戳、帧错误标记、
-// 使能门控、FIFO 溢出计数、clear 语义、中断电平、读写同拍竞争矩阵
+// 使能门控、FIFO 溢出计数、clear 语义、中断电平、空读门控、读写同拍竞争矩阵
 // 测试实例化 FIFO_DEPTH=8 以便溢出测试；BITDIV 默认 32，测试中改为 8
 `timescale 1ns/1ps
 `default_nettype none
@@ -223,6 +223,16 @@ module tb_uart_mon;
     join
 
     // ---- 读写同拍竞争矩阵：pop 与字节落记录同一拍 × 深度 0/1/2/满 ----
+    // 空读门控（构造化验证）：灌满再弹空后读头必留非零残值（弹出绕回时
+    // 装载阵列里的旧记录），趁空读 TSTAMP/DATA 都必须回 0——检出「空读
+    // 门控被摘」靠这里的构造保证，不依赖前面用例留下的残值/排列顺序
+    fill_fifo(8, 8'hE0);
+    drain_check(8, 8'hE0, "空读前置");
+    reg_read(5'h08, rd);
+    if (rd !== 32'd0) begin errors++; $display("FAIL: 空读 TSTAMP=%h 期望 0", rd); end
+    reg_read(5'h0C, rd);            // 空读 DATA：pop 被忽略，不产生副作用
+    if (rd !== 32'd0) begin errors++; $display("FAIL: 空读 DATA=%h 期望 0", rd); end
+
     // d=0：空 FIFO 同拍 pop 被忽略（空读 DATA 得 0），新字节照常落记录
     fork
       serial_tx(8'hD0);
