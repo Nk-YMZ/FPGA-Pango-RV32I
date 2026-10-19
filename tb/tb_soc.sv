@@ -69,6 +69,24 @@ module tb_soc;
   int cycle_cnt;
   always @(posedge clk) if (running) cycle_cnt <= cycle_cnt + 1;
 
+  // ---- BTB 收益量化（+BTBSTAT 启用打印；只读观察的测量设施，不影响判定）----
+  // 统计 EX 级「未预测间接跳转」重定向次数：JALR 且 rs1 非 link 寄存器
+  // （x1/x5）不享受 RAS 预测，必然在 EX 级解析真实目标后重定向，每次冲刷
+  // IF/ID 两级、代价按 2 拍估算；次数×2 占总周期比例即 BTB 收益上限。
+  // 指令按 idex_pc 从 imem 读回解码——不依赖核心内部控制结构，SV/Verilog
+  // 两种 DUT 源码（rtl/ 与 rtl_v/）下层级路径均有效；!stall 保证访存
+  // 停顿期间（ex_redirect 跨拍保持）不重复计数。
+  localparam int IMEM_AW = $clog2(MEM_BYTES / 4);   // imem 字地址位宽
+  int  jalr_unpred_cnt;
+  /* verilator lint_off UNUSEDSIGNAL */   // 只需操作码与 rs1 字段，其余位天然未用
+  wire [31:0] ex_instr = dut.imem_i.mem[dut.core_i.idex_pc[IMEM_AW+1:2]];
+  /* verilator lint_on UNUSEDSIGNAL */
+  wire        jalr_unpred_e = dut.core_i.ex_redirect && !dut.core_i.stall &&
+                              ex_instr[6:0] == 7'b1100111 &&
+                              ex_instr[19:15] != 5'd1 && ex_instr[19:15] != 5'd5;
+  always @(posedge clk) if (running && jalr_unpred_e)
+    jalr_unpred_cnt <= jalr_unpred_cnt + 1;
+
   // ---- ACT tohost 监视（+TOHOST=<addr> 启用）----
   localparam int MEM_AW = $clog2(MEM_BYTES / 4);
 
@@ -245,6 +263,7 @@ module tb_soc;
     bit    magic_en;
     bit    timeoutpass;
     bit    gpioend;
+    bit    btbstat;
     int    timeout_cycles;
     int    errors;
     string uartlog_file;
@@ -252,6 +271,7 @@ module tb_soc;
     clk = 0; rst_n = 0; gpio_in = 32'h1234_5678;
     mispredict_cnt = 0;
     cycle_cnt = 0;
+    jalr_unpred_cnt = 0;
     errors = 0;
 
     if (!$value$plusargs("HEX=%s", hex)) hex = "build/test_isa.hex";
@@ -291,6 +311,7 @@ module tb_soc;
     // +GPIOEND：以 GPIO 魔数写入为结束信号（中断驱动固件无停机概念），
     // 须与 +MAGIC 同用；结束后的魔数核对复用下方既有逻辑
     gpioend = $test$plusargs("GPIOEND");
+    btbstat = $test$plusargs("BTBSTAT");
     if (gpioend && !magic_en)
       $fatal(1, "tb_soc: +GPIOEND 需与 +MAGIC=<魔数> 同用");
     if (irq_cnt_addr != 0 && irq_exp < 0)
@@ -331,6 +352,9 @@ module tb_soc;
     @(posedge clk); #1;
     $display("tb_soc: 停机原因码=%0d, 分支预测失败次数=%0d, 周期数=%0d",
              halt_code, mispredict_cnt, cycle_cnt);
+    if (btbstat)
+      $display("tb_soc: BTB 量化：未预测间接跳转（JALR 且 rs1 非 x1/x5）重定向 %0d 次，按 2 拍/次估算代价 %0d 拍（总周期 %0d）",
+               jalr_unpred_cnt, jalr_unpred_cnt * 2, cycle_cnt);
     if (plan_file != "")
       $display("tb_soc: 注入执行 %0d/%0d 条", plan_done_cnt, plan_n);
 
