@@ -8,8 +8,10 @@
 MTI/MSI/MEI、WFI；未实现项清单见 design.md「特权架构边界」）、
 UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，以及应用环节的 uart_mon 总线监听
 采集外设（字节+时间戳 FIFO），并完成仿真验证与官方合规测试。
-RTL 核心已冻结，应用环节的仓库内工作（配套外设 RTL + C 应用固件 + PC 联调
-脚本）已完成，准备上板联调；上板适配本身不在本仓库范围。
+基础任务已全部完成并冻结于 rv32i-main 分支，当前在 rv32i-dev 分支进行
+性能优化（时序/IPC 迭代，规范见 AGENTS.md）。上板适配不在本仓库范围，
+但 rtl/ 配有自动生成的 Verilog-2005 交付件 rtl_v/（PDS 对高级 SV 语法
+支持不全，上板工程直接添加 rtl_v/ 即可）。
 
 ## 验证状态
 
@@ -23,6 +25,7 @@ RTL 核心已冻结，应用环节的仓库内工作（配套外设 RTL + C 应�
 
 ```
 rtl/       CPU 核心与外设 RTL（soc_top.sv 为顶层）
+rtl_v/     rtl/ 的 Verilog-2005 转换交付件（sv2v 自动生成入库，供 PDS 上板使用）
 tb/        Verilator 测试平台
 sw/        测试程序与应用固件（链接脚本、crt0、C/汇编；sw/app/ 为 Modbus 监听应用）
 bench/     CoreMark 移植层与成绩记录（results.csv）
@@ -48,7 +51,9 @@ make demo    # 应用 demo：总线监听多场景闭环（15 个总线场景 go
 make demo9600 # 真实波特率量级复验：15 个总线场景 × 9600 量级位周期（上板前补强，不作门禁）
 make stress  # 应用压力测量：扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁）
 make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
-make lint    # Verilator -Wall lint
+make lint    # Verilator -Wall lint（含 rtl_v 与 rtl/ 的同步检查）
+make verilog # 由 rtl/ 经 sv2v 重新生成 rtl_v/（RTL 改动后必跑，随同提交）
+make test RTL_DIR=rtl_v  # 以 rtl_v/ 交付件为 DUT 源码跑测试（转换等价性验证）
 bash scripts/timing/run_timing.sh --quick  # 时序定性门禁（RTL 迭代必跑，最长路径级数比对基线）
 bash scripts/timing/run_timing.sh          # 全量时序分析（追加 top-12 最长路径枚举）
 ```

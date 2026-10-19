@@ -76,7 +76,7 @@ CoreMark 基线：10 次迭代 3,547,147 仿真周期（RV32M 硬乘除；对照
 ## 新机器环境搭建
 
 1. 装系统包：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv yosys`
-   （时序定性分析另需 sv2v，官方仓库无包，archlinuxcn 仓库有：`sudo pacman -S sv2v`）
+   （时序定性分析与 rtl_v 转换另需 sv2v，官方仓库无包，archlinuxcn 仓库有：`sudo pacman -S sv2v`）
 2. 克隆本仓库后运行 `bash scripts/setup.sh`（幂等）：检查依赖 → 按固定版本拉取
    `external/` 外部组件（riscv-arch-test / coremark / sail / riscv-dv / riscv-tests）→ 用户级安装 mise
    及 ACT 框架工具链（ruby/bundler/uv，均在用户目录，不改系统与 shell 配置）→
@@ -131,6 +131,9 @@ README「使用」节。随机层修复失败后的定点复核用 `bash scripts
    不再逐一修订本条）。demo 层属强制门禁：全量仅数秒且确定性强，
    应用判定链对 RTL 回归同样有效。
    任何失败先修复再继续，不得带病跑分。
+   **rtl_v 同步门禁**：RTL 改动须 `make verilog` 重新生成 rtl_v/ 并随同
+   提交（`make lint` 含 vcheck 同步检查，不一致禁止提交），并至少跑一次
+   `make test RTL_DIR=rtl_v`（sv2v 转换等价性抽查：交付件与 SV 源行为一致）。
    **随机层检出分歧时的强制复核顺序**：修复后必须先用出问题的原种子
    复核通过（`bash scripts/rand/replay.sh <种子>`；陷阱模式为
    `RAND_TRAP=1 bash scripts/rand/replay.sh <种子>`，中断模式为
@@ -206,7 +209,10 @@ README「使用」节。随机层修复失败后的定点复核用 `bash scripts
 
 ## 工作区管理
 
-- `rtl/` 可综合 RTL；`tb/` 测试平台（含仿真专用模块 mbus_gen）；`sw/` 测试软件与
+- `rtl/` 可综合 RTL（SystemVerilog 源，唯一真源）；`rtl_v/` PDS 交付用
+  Verilog-2005 源码（rtl/ 经 sv2v 自动生成入库，禁止手改，随 rtl/ 同一
+  提交同步，规则见 rtl_v/README.md）；`tb/` 测试平台（含仿真专用模块
+  mbus_gen）；`sw/` 测试软件与
   应用固件（C；`sw/app/` 为应用固件）；`bench/` CoreMark 移植层与
   成绩记录；`scripts/` 工具与适配脚本（`act/`、`bench/`、`rand/`、`rtests/`、
   `demo/`、`pc/`）；`external/` 外部组件
@@ -219,7 +225,9 @@ README「使用」节。随机层修复失败后的定点复核用 `bash scripts
 - 处理器 RTL 的可选优化项（Cache、BTB、特权架构扩展、指令集扩展等，
   清单见「剩余待办」）**是否做、何时做、做哪些，一律等用户明确指令**；
   不得自行开工扩大范围，但设计时应保留合理扩展空间。
-- 本项目不涉及上板（PDS 工程、约束、烧录、板级调试等一律不在范围内）。
+- 本项目不涉及上板（PDS 工程、约束、烧录、板级调试等一律不在范围内）；
+  但维护供上板直接使用的 Verilog-2005 交付件 rtl_v/（自动生成），BRAM/
+  DSP 推断与 imem 初始化方式等 PDS 侧事项留给上板阶段实测。
 
 ## 剩余待办
 

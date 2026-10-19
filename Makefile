@@ -4,7 +4,10 @@
 #   make smoke   核心冒烟测试（含在 make test 中）
 #   make integ   编译测试程序并运行 SoC 集成仿真
 #   make test    全部自研测试（单元 + 冒烟 + 集成 + proto 宿主单元测试）
-#   make lint    Verilator lint
+#                RTL_DIR=rtl_v 时用 rtl_v/ 的 Verilog-2005 交付件作 DUT 源码
+#   make lint    Verilator lint（含 rtl_v 同步检查 vcheck）
+#   make verilog 由 rtl/ 经 sv2v 重新生成 rtl_v/（PDS 交付用 Verilog-2005）
+#   make vcheck  检查 rtl_v/ 与 rtl/ 同步，不一致即失败
 #   make wave    带波形运行集成测试（生成 build/*.fst，可用 gtkwave 查看）
 
 VERILATOR ?= verilator
@@ -12,10 +15,29 @@ VFLAGS    := --binary --timing -j 4 -Wall -Wno-DECLFILENAME --timescale 1ns/1ps
 
 BUILD := build
 
-RTL_CORE := rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv rtl/bht.sv \
-            rtl/ras.sv rtl/csr_file.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv
-RTL_SOC  := $(RTL_CORE) rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/mtimer.sv \
-            rtl/uart_mon.sv rtl/soc_top.sv
+# 产品 RTL 清单单点维护在 scripts/rtl_files.txt（与 sv2v 转换链、时序分析共用）；
+# RTL_CORE = 清单减去纯 SoC 外设与顶层（核心冒烟测试 tb_core 只构建核心部分）
+RTL_SOC  := $(shell grep -v '^\#' scripts/rtl_files.txt)
+RTL_CORE := $(filter-out rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/mtimer.sv \
+            rtl/uart_mon.sv rtl/soc_top.sv,$(RTL_SOC))
+
+# DUT 源码切换：默认 SystemVerilog 源（rtl/）；RTL_DIR=rtl_v 时用转换生成的
+# Verilog-2005 交付件构建（验证 sv2v 转换语义等价，规则见 rtl_v/README.md）。
+# rtl_v 中 core_pkg 内容已内联进各模块，包文件仅供引用它的 tb 使用，单独保留。
+# OBJ_TAG 隔离两种源码的构建产物目录，避免来回切换时拿到旧模式的二进制。
+RTL_DIR ?= rtl
+ifeq ($(RTL_DIR),rtl_v)
+DUT_CORE := rtl/core_pkg.sv $(patsubst rtl/%.sv,rtl_v/%.v,$(filter-out rtl/core_pkg.sv,$(RTL_CORE)))
+DUT_SOC  := rtl/core_pkg.sv $(patsubst rtl/%.sv,rtl_v/%.v,$(filter-out rtl/core_pkg.sv,$(RTL_SOC)))
+OBJ_TAG  := _v
+# sv2v 译法固有的风格噪音（理由见 scripts/rtl_v/gen_rtl_v.sh 头注释），
+# 仅在本模式下豁免；严格风格把关在默认 SV 模式的 lint 上
+VFLAGS   += -Wno-UNDRIVEN -Wno-UNUSEDSIGNAL -Wno-WIDTHEXPAND
+else
+DUT_CORE := $(RTL_CORE)
+DUT_SOC  := $(RTL_SOC)
+OBJ_TAG  :=
+endif
 
 RISCV       := riscv64-elf-
 RISCV_FLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles
@@ -24,7 +46,7 @@ UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分
-.PHONY: test unit smoke integ prototest lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app demo9600 stress
+.PHONY: test unit smoke integ prototest lint wave clean bench act act-build rand randtrap randirq rtests demo demo-app demo9600 stress verilog vcheck
 
 test: unit smoke integ prototest
 
@@ -33,10 +55,10 @@ unit:
 	@mkdir -p $(BUILD)
 	@set -e; for u in $(UNITS); do \
 	  echo "----- 编译 tb_$$u -----"; \
-	  $(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_$$u -o tb_$$u --top-module tb_$$u \
-	      $(RTL_SOC) tb/tb_$$u.sv > $(BUILD)/obj_$$u.log 2>&1 || \
+	  $(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_$$u$(OBJ_TAG) -o tb_$$u --top-module tb_$$u \
+	      $(DUT_SOC) tb/tb_$$u.sv > $(BUILD)/obj_$$u.log 2>&1 || \
 	      { cat $(BUILD)/obj_$$u.log; exit 1; }; \
-	  $(BUILD)/obj_$$u/tb_$$u || exit 1; \
+	  $(BUILD)/obj_$$u$(OBJ_TAG)/tb_$$u || exit 1; \
 	done
 	@echo "===== 单元测试全部通过 ====="
 
@@ -56,9 +78,9 @@ prototest: $(BUILD)/proto_host_test
 
 # ---------------- 核心冒烟测试 ----------------
 smoke: $(BUILD)/test_core_smoke.hex
-	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_core -o tb_core --top-module tb_core \
-	    --trace-fst $(RTL_CORE) tb/tb_core.sv
-	$(BUILD)/obj_core/tb_core +HEX=$(BUILD)/test_core_smoke.hex
+	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD)/obj_core$(OBJ_TAG) -o tb_core --top-module tb_core \
+	    --trace-fst $(DUT_CORE) tb/tb_core.sv
+	$(BUILD)/obj_core$(OBJ_TAG)/tb_core +HEX=$(BUILD)/test_core_smoke.hex
 
 # 测试程序：汇编/编译 → objcopy → hex
 # elf 保留（默认会作中间文件删除）：test_csr/test_trap 运行时用 nm 从中提取
@@ -73,7 +95,7 @@ $(BUILD)/%.hex: $(BUILD)/%.elf
 	python3 scripts/bin2hex.py $(BUILD)/$*.bin $@
 
 # ---------------- 集成仿真 ----------------
-SOC_TB := $(BUILD)/obj_soc/tb_soc
+SOC_TB := $(BUILD)/obj_soc$(OBJ_TAG)/tb_soc
 HEXES  := $(addprefix $(BUILD)/, test_isa.hex test_muldiv.hex test_csr.hex test_trap.hex \
             test_irq.hex test_irq_ghost.hex test_fault_csr.hex test_fault_illegal.hex \
             test_fault_misaligned.hex test_fault_bus.hex test_fault_fetchmis.hex test_ebreak.hex)
@@ -98,9 +120,9 @@ integ: $(SOC_TB) $(HEXES)
 	@echo "===== 集成测试全部通过 ====="
 
 # tb_soc 需要 waive_soc.vlt：注入引擎层级 poke mtimecmp 的 MULTIDRIVEN 精确豁免
-$(SOC_TB): $(RTL_SOC) tb/tb_soc.sv tb/mbus_gen.sv tb/waive_soc.vlt
-	$(VERILATOR) $(VFLAGS) --trace-fst --Mdir $(BUILD)/obj_soc -o tb_soc \
-	    --top-module tb_soc tb/waive_soc.vlt $(RTL_SOC) tb/mbus_gen.sv tb/tb_soc.sv
+$(SOC_TB): $(DUT_SOC) tb/tb_soc.sv tb/mbus_gen.sv tb/waive_soc.vlt
+	$(VERILATOR) $(VFLAGS) --trace-fst --Mdir $(BUILD)/obj_soc$(OBJ_TAG) -o tb_soc \
+	    --top-module tb_soc tb/waive_soc.vlt $(DUT_SOC) tb/mbus_gen.sv tb/tb_soc.sv
 
 # C 测试程序：crt0 + main，O2 编译以覆盖更多指令形式
 $(BUILD)/test_isa.elf: sw/tests/test_isa.c sw/crt0.S sw/link.ld
@@ -343,10 +365,25 @@ rtests: $(SOC_TB)
 	bash scripts/rtests/run_rtests.sh
 
 # ---------------- lint ----------------
-lint:
+# lint 含 vcheck：rtl_v/ 与 rtl/ 的同步检查是 RTL 改动提交门禁之一
+lint: vcheck
 	@mkdir -p $(BUILD)
 	$(VERILATOR) --lint-only -Wall -Wno-DECLFILENAME --timescale 1ns/1ps \
 	    --top-module soc_top $(RTL_SOC)
+
+# ---------------- rtl_v/（PDS 交付用 Verilog-2005 源码，规则见 rtl_v/README.md） ----------------
+# make verilog：rtl/ 经 sv2v 重新生成 rtl_v/（生成即 lint 交付件）
+# make vcheck ：重新生成到临时目录并与 rtl_v/ 逐文件 diff，不一致即失败
+verilog:
+	bash scripts/rtl_v/gen_rtl_v.sh rtl_v
+
+vcheck:
+	@mkdir -p $(BUILD)
+	@bash scripts/rtl_v/gen_rtl_v.sh $(BUILD)/rtl_v_check > /dev/null
+	@diff -r -x README.md rtl_v $(BUILD)/rtl_v_check > /dev/null && \
+	  echo "vcheck: rtl_v/ 与 rtl/ 同步" || \
+	  { echo "FAIL: rtl_v/ 与 rtl/ 不同步，请运行 make verilog 重新生成并随同提交"; \
+	    diff -r -x README.md rtl_v $(BUILD)/rtl_v_check | head -20; exit 1; }
 
 wave: $(SOC_TB) $(BUILD)/test_isa.hex
 	$(SOC_TB) +HEX=$(BUILD)/test_isa.hex +EXPECT=1 +MAGIC=0000900d +TRACE

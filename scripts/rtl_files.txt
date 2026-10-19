@@ -1,0 +1,21 @@
+# 产品 RTL 源文件清单（顺序固定，一行一个；# 开头为注释）
+# 消费方：scripts/rtl_v/gen_rtl_v.sh（sv2v 转换）、scripts/timing/run_timing.sh
+# （时序分析）、Makefile（RTL_SOC 由本清单派生）。tb/ 与仿真专用模块不在其列。
+# 新增/删除产品 RTL 文件只改这一处。
+rtl/core_pkg.sv
+rtl/alu.sv
+rtl/muldiv.sv
+rtl/regfile.sv
+rtl/decoder.sv
+rtl/bht.sv
+rtl/ras.sv
+rtl/csr_file.sv
+rtl/core.sv
+rtl/imem.sv
+rtl/dmem.sv
+rtl/uart.sv
+rtl/gpio.sv
+rtl/cyclectr.sv
+rtl/mtimer.sv
+rtl/uart_mon.sv
+rtl/soc_top.sv

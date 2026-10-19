@@ -29,9 +29,8 @@ QUICK=0
 [ "${1:-}" = "--quick" ] && { QUICK=1; shift; }
 N=${1:-12}
 
-RTL="rtl/core_pkg.sv rtl/alu.sv rtl/muldiv.sv rtl/regfile.sv rtl/decoder.sv \
-     rtl/bht.sv rtl/ras.sv rtl/csr_file.sv rtl/core.sv rtl/imem.sv rtl/dmem.sv \
-     rtl/uart.sv rtl/gpio.sv rtl/cyclectr.sv rtl/mtimer.sv rtl/uart_mon.sv rtl/soc_top.sv"
+# 产品 RTL 清单与 rtl_v 转换链共用（单点维护），顺序固定
+RTL=$(grep -v '^#' scripts/rtl_files.txt | tr '\n' ' ')
 
 # 门禁轨映射脚本：深度导向，对无关扰动免疫（见 design.md 7.2）
 GATE_ABC='abc -lut 6 -script +strash;dch,-f;if,-K,6'
