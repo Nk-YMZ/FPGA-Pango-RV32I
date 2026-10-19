@@ -216,6 +216,21 @@ module core #(
                               && !draining && !halted && !ex_redirect && !trap_any;
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
+  // ---- 返回预测验证的双候选预计算（ID 级算出，随流水线寄存到 EX 级）----
+  // EX 级验证 RAS 预测的原始形式为 (rs1_e+imm)&~1 == T（T = 预测时的栈顶，
+  // 随 idex_pred_target 下行），32 位加法进位链挡在重定向判定路径上。
+  // 模 2^32 等价变换：
+  //   (rs1+imm)&~1 == T  ⟺  rs1+imm ∈ {T, T+1}  ⟺  rs1 ∈ {T−imm, (T+1)−imm}
+  // 前提：T 为偶数（左边必为偶数，T 为奇数时原式恒不成立而候选式可能误命中）——
+  // 实际更强：RAS 表项恒 4 对齐（仿真断言见本文件末尾，该断言是等价性的
+  // 必要条件而非装饰）。两个候选各经一条独立减法进位链并行算出；T+1 利用
+  // T[0]=0 写成位拼接，不产生递增器（写成 (T−imm)+1 则两条进位链路串联，
+  // 违背去链初衷）。EX 级只剩两棵相等树，判定路径不再有进位链。
+  // 原 rs1_e+imm 加法器保留：重定向目标与 trap_cti 的 mtval 仍需要真实目标，
+  // 变换后它降为数据并行支路，不再挡判定。
+  wire [31:0] ret_cand0_d = ras_top - imm_d;
+  wire [31:0] ret_cand1_d = {ras_top[31:1], 1'b1} - imm_d;   // = (T+1)−imm（T 恒偶）
+
   // 异常请求（被 EX 级重定向或年长陷入杀死时不接受——说明它在错误路径上）
   // mtvec 未配置时维持停机兼容：ID 级接受后停止取指、排干流水线停机；
   // 已配置时不接受停机，标记随流水线到 EX 级触发标准陷入。
@@ -265,6 +280,7 @@ module core #(
   logic [4:0]  idex_rs1, idex_rs2, idex_rd;
   logic        idex_pred_taken;
   logic [31:0] idex_pred_target;  // RAS 预测的返回目标（兼作误预测恢复的旧栈顶）
+  logic [31:0] idex_ret_cand0, idex_ret_cand1;  // RAS 验证双候选（ID 级预计算）
   logic        idex_ras_pop;      // 本条在 ID 级弹过栈
   logic        idex_ras_push;     // 本条进入 EX 时压过栈
   logic        idex_valid;        // EX 级含未退休指令（中断采样的精确边界依据）
@@ -283,6 +299,8 @@ module core #(
       idex_rd         <= 5'd0;
       idex_pred_taken <= 1'b0;
       idex_pred_target <= 32'd0;
+      idex_ret_cand0  <= 32'd0;
+      idex_ret_cand1  <= 32'd0;
       idex_ras_pop    <= 1'b0;
       idex_ras_push   <= 1'b0;
       idex_valid      <= 1'b0;
@@ -314,6 +332,8 @@ module core #(
       idex_pred_taken  <= ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
                           || (ret_predict_d && !draining && !halted);
       idex_pred_target <= ras_top;
+      idex_ret_cand0   <= ret_cand0_d;
+      idex_ret_cand1   <= ret_cand1_d;
       idex_ras_pop     <= ret_predict_d && !draining && !halted;
       idex_ras_push    <= ras_push_d;
       // 随 IF/ID 的 valid 下传：冲刷气泡（NOP）不是真实指令，否则中断在
@@ -519,8 +539,10 @@ module core #(
                                            : (idex_pc + idex_imm);
   wire        is_cti_e = idex_ctrl.is_branch || idex_ctrl.is_jal || idex_ctrl.is_jalr;
 
+  // RAS 命中验证：双候选相等树（等价推导与对齐前提见 ID 级注释），比对
+  // 不再依赖 rs1_e+imm 加法器的进位链
   wire jalr_pred_miss_e = idex_ctrl.is_jalr && idex_pred_taken &&
-                          (target_e != idex_pred_target);
+                          (rs1_e != idex_ret_cand0) && (rs1_e != idex_ret_cand1);
 
   // 取指目标非对齐（无 C 扩展，目标 bit1=1 即异常）：taken CTI 在 EX 级撤销——
   // 跳转指令本身被冲刷（EX/MEM 注入气泡，link 寄存器不写回），mepc=本条 pc、
@@ -709,6 +731,25 @@ module core #(
       end
     end
   end
+
+// ================= 仿真断言（综合剥离，不生成任何逻辑）=================
+`ifndef SYNTHESIS
+  // 双候选比对变换的等价前提（见 ID 级 ret_cand 注释）：凡被用作返回预测
+  // 目标的栈顶恒 4 对齐。依据：压栈数据恒为 ifid_pc+4（pc 恒 4 对齐——
+  // RESET_PC 对齐、顺序取指 +4、目标 bit1=1 的 taken CTI 被 trap_cti 撤销）；
+  // 误预测撤销写回的 idex_pred_target 本身来自此前的栈顶，归纳保持。
+  // 前提一旦被破坏等价变换即失效，故断言到源头三处：用栈顶、压栈、撤销写回。
+  // 三个使能信号复位期间均为 0（空栈不预测、停机寄存器清零、无有效指令），
+  // 无需再门控 rst_n（避免 rst_n 被同步读触发 Verilator SYNCASYNCNET 告警）。
+  always_ff @(posedge clk) begin
+    if (ret_predict_d && ras_top[1:0] != 2'b00)
+      $error("RAS 栈顶非 4 对齐（ras_top=%h），双候选比对等价前提被破坏", ras_top);
+    if (ras_push_d && ifid_pc[1:0] != 2'b00)
+      $error("RAS 压栈 pc 非 4 对齐（ifid_pc=%h）", ifid_pc);
+    if (ras_rewrite_e && idex_pred_target[1:0] != 2'b00)
+      $error("RAS 撤销写回数据非 4 对齐（idex_pred_target=%h）", idex_pred_target);
+  end
+`endif
 
 endmodule
 

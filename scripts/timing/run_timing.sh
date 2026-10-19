@@ -41,7 +41,8 @@ mkdir -p "$B"
 echo "== 阶段 0：sv2v 翻译 + imem 建模修复 =="
 # yosys 原生 SV 前端不支持 import package，先用 sv2v 转 Verilog-2005；
 # fix_imem 修复 sv2v 把只读 imem 数组降级为 wire 导致的存储器建模丢失
-sv2v $RTL > "$B/soc_flat.v" 2> "$B/sv2v.log"
+# -DSYNTHESIS 剥离 RTL 中 `ifndef SYNTHESIS 的仿真断言块（断言不进网表）
+sv2v -DSYNTHESIS $RTL > "$B/soc_flat.v" 2> "$B/sv2v.log"
 python3 scripts/timing/fix_imem.py "$B/soc_flat.v"
 
 echo "== 阶段 1：DSP 视图综合（含预 abc 最长路径）=="
