@@ -192,9 +192,9 @@ module core #(
   wire ret_predict_d = ret_d && !ras_empty;
 
   wire ras_push_d = call_d        && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_any;
+                    && !trap_any && !wfi_wait;
   wire ras_pop_d  = ret_predict_d && !stall_young && !ex_redirect && !draining && !halted
-                    && !trap_any;
+                    && !trap_any && !wfi_wait;
 
   ras #(.DEPTH(RAS_DEPTH)) ras_i (
     .clk          (clk),
@@ -210,10 +210,16 @@ module core #(
   );
 
   // 预测/确定跳转：立即重定向取指，冲刷 IF 级
-  // （JAL 目标译码即确定；返回跳转以 RAS 栈顶为预测目标）
+  // （JAL 目标译码即确定；返回跳转以 RAS 栈顶为预测目标）。
+  // !wfi_wait：WFI 睡眠期 pc 被 wfi_wait 优先保持，id_redirect 拉起只会
+  // 空翻 IF 并反复冲刷 IF/ID（睡眠期 ID 滞留的是唤醒后要执行的 wfi+4
+  // 指令，压住不动；唤醒拍门控自动解除，改向照常发生）。压/弹栈同理
+  // 门控，否则睡眠期 ret 滞留会每拍空弹 RAS 直至耗尽（行为正确但预测
+  // 精度受损）
   assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
                                || ret_predict_d)
-                              && !draining && !halted && !ex_redirect && !trap_any;
+                              && !draining && !halted && !ex_redirect && !trap_any
+                              && !wfi_wait;
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
   // ---- 返回预测验证的双候选预计算（ID 级算出，随流水线寄存到 EX 级）----

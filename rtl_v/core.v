@@ -134,8 +134,8 @@ module core (
 	wire call_d = (ctrl_d[12] || ctrl_d[11]) && link_rd_d;
 	wire ret_d = ctrl_d[11] && link_rs1_d;
 	wire ret_predict_d = ret_d && !ras_empty;
-	wire ras_push_d = ((((call_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any;
-	wire ras_pop_d = ((((ret_predict_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any;
+	wire ras_push_d = (((((call_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any) && !wfi_wait;
+	wire ras_pop_d = (((((ret_predict_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any) && !wfi_wait;
 	reg [31:0] idex_pred_target;
 	ras #(.DEPTH(RAS_DEPTH)) ras_i(
 		.clk(clk),
@@ -149,7 +149,7 @@ module core (
 		.rewrite_en(ras_rewrite_e),
 		.rewrite_data(idex_pred_target)
 	);
-	assign id_redirect = (((((ctrl_d[12] || (ctrl_d[13] && predict_taken_d)) || ret_predict_d) && !draining) && !halted) && !ex_redirect) && !trap_any;
+	assign id_redirect = ((((((ctrl_d[12] || (ctrl_d[13] && predict_taken_d)) || ret_predict_d) && !draining) && !halted) && !ex_redirect) && !trap_any) && !wfi_wait;
 	assign id_redirect_target = (ret_predict_d ? ras_top : ifid_pc + imm_d);
 	wire [31:0] ret_cand0_d = ras_top - imm_d;
 	wire [31:0] ret_cand1_d = {ras_top[31:1], 1'b1} - imm_d;

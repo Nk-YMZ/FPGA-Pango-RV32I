@@ -257,10 +257,10 @@ bench 周期数看 IPC/CoreMark，yosys 定性级数做改动前后的快速对�
    busy 期约 15%。消的是「预测全对也付」的 taken 控制流固有 1 拍气泡，
    与已否决的间接跳转 BTB（0.18%）不是同一类。
 
-   前置小修（独立原子提交，行为不变）：WFI 睡眠期 id_redirect /
-   ras_push_d / ras_pop_d 补 !wfi_wait 门控（design.md 2.3 顺带观测：
-   睡眠期 pc 被保持，id_redirect 反复拉起造成 IF 空翻，若滞留指令是
-   预测 ret 还会空弹 RAS；行为正确，仅功耗与预测精度损失）。
+   前置小修已完成（见 git log）：WFI 睡眠期 id_redirect / ras_push_d /
+   ras_pop_d 已补 !wfi_wait 门控；注意其并非逐拍不变——睡眠期 IF 空翻
+   振荡消除后唤醒确定性提前一拍，demo 故障日志 golden 两处 ts 同步
+   64155→64154（架构行为不变，bench 逐拍一致）。
 
    第一步：取指级 BTB 覆盖条件分支 + JAL（吃掉收益的绝对大头）。
    要点：
