@@ -15,11 +15,15 @@
 // - 数据相关：EX 级输入从 MEM、WB 两级前递；store 数据在 MEM 级从 WB 前递；
 //   WB 写与 ID 读同拍时做 WB→ID 前递。load 数据在 MEM 级获得后当拍前递，
 //   无 load-use 暂停；唯一暂停来源是两个存储器口的等待。
-// - 分支/跳转预测：BHT 在 ID 级预测条件分支方向并预取 pc+imm；JAL 目标译码
-//   即确定，ID 级直接重定向；返回跳转（JALR 且 rs1 为 link 寄存器 x1/x5）
-//   用返回地址栈（RAS）在 ID 级预测目标，调用指令进入 EX 时压栈。EX 级解析
-//   真实结果，不一致则冲刷 IF/ID 按正确目标重定向，并撤销对应 RAS 弹栈恢复
-//   现场；其余 JALR（间接跳转）不预测，EX 级重定向。
+// - 分支/跳转预测：取指级 BTB（直接映射，查找随取指地址同拍进行、结果
+//   寄存一拍与指令同拍到达 IF 级）覆盖条件分支与 JAL——命中且（JAL 或
+//   BHT 预测跳）时 IF 级直接改向，预测全对零气泡；BTB 未命中的分支走
+//   ID 级原路径（BHT 预测方向、预取 pc+imm），未命中 JAL 在 ID 级直转；
+//   返回跳转（JALR 且 rs1 为 link 寄存器 x1/x5）用 RAS 在 ID 级预测目标，
+//   调用指令离开 ID 级时压栈。IF 级已预测的指令随流水线带标记，ID 级不
+//   再重复改向；EX 级统一验证方向与目标，不符则冲刷 IF/ID 按正确目标重
+//   定向，并撤销对应 RAS 弹栈恢复现场；其余 JALR（间接跳转）不预测，EX
+//   级重定向。
 // - M 态特权子集（Zicsr + 异常/中断）：CSR 指令在 EX 级读改写（旧值作 rd
 //   写回数据，无 CSR 数据相关）；MRET 在 EX 级重定向回 mepc 并恢复
 //   mstatus.MIE。同步异常精确陷入：ecall/ebreak/非法指令在 ID 级发现、
@@ -40,6 +44,7 @@
 module core #(
   parameter [31:0] RESET_PC  = 32'h0000_0000,
   parameter int    BHT_BITS  = 8,              // BHT 索引位数（表项 2^BHT_BITS）
+  parameter int    BTB_BITS  = 6,              // BTB 索引位数（表项 2^BTB_BITS）
   parameter int    RAS_DEPTH = 16              // 返回地址栈深度
 ) (
   input  wire                  clk,
@@ -101,6 +106,11 @@ module core #(
   wire  [2:0]  ip_masked;      // mip & mie 的 {MEI, MSI, MTI}（csr_file 输出）
   wire         mie_status;     // mstatus.MIE
 
+  // 取指级预测（BTB）查找结果：以 btb_lookup_addr 索引，组合读出后寄存一拍
+  wire         btb_hit_f, btb_jal_f, bht_taken_f;
+  wire  [31:0] btb_target_f;
+  wire         btb_update_en;    // EX 级登记使能（定义见 EX 级）
+
   // 下一取指地址。复位期间固定为 RESET_PC，保证 BRAM 在复位释放沿采到首地址；
   // 暂停/停机/WFI 睡眠时保持 pc，BRAM 重读同一地址，流水线恢复时数据恰好就绪。
   // 陷入（含中断）优先级最高：四种陷入目标同为 mtvec 入口，合并为 trap_any 占一级，
@@ -112,12 +122,56 @@ module core #(
   wire [31:0] csr_trap_pc;
   wire        wfi_wake = (ip_masked != 3'b000);   // mip&mie 非零即唤醒（不看 MIE）
   wire        wfi_wait = wfi_sleep && !wfi_wake;
+
+  // ---- 取指级预测寄存器 ----
+  // BTB/BHT 查找与取指同拍流水：本拍索引、结果寄存一拍，与该地址的指令
+  // 到达 IF 级同拍使用——查表/tag 比对落在寄存器到寄存器路径上，不占 pc
+  // 选择环路的当拍延迟。pc 保持（停顿/排干/停机/WFI 睡眠）时 IF 级指令
+  // 不动，预测标记随 pc 同源保持，保证标记与指令严格对齐。
+  // 时序关键取舍：查找地址只跟踪顺序流与 IF/ID 级改向（预测链），不跟
+  // 完整 pc_next——EX 级重定向/陷入/WFI 的控制锥很长（数据前递→分支比较
+  // →重定向），若纳入查找地址，查表+tag 比对会接在整条重定向锥之后成为
+  // 最差路径（实测门禁轨 18→24 级）。代价：这三类改向的目标指令到达时
+  // 无 IF 级预测（valid=0），回退 ID 级原路径（1 拍气泡，同 BTB 未命中）
+  // ——误预测恢复与陷入本就稀少，收益损失可忽略
+  logic        if_pred_hit_q, if_pred_jal_q, if_pred_dir_q, if_pred_valid_q;
+  logic [31:0] if_pred_target_q;
+  wire         pc_hold = stall_young || draining || halted || wfi_wait;
+
+  // 本拍 IF 级指令（pc 处）的预测改向：BTB 命中且（JAL 或 BHT 预测跳）。
+  // 在 pc_next 中优先级最低（低于一切确定性改向：陷入/WFI/EX/ID 级）
+  wire if_predict = if_pred_valid_q && if_pred_hit_q
+                    && (if_pred_jal_q || if_pred_dir_q);
+
+  // 查找地址与 pc_next 后三级同序同值（id_redirect_req 不带 EX/陷入门控，
+  // 但那两类改向拍 valid=0 标记作废，不影响对齐），保证标记与到达指令对齐
+  wire [31:0] btb_lookup_addr = id_redirect_req ? id_redirect_target :
+                                if_predict      ? if_pred_target_q :
+                                                  pc + 32'd4;
+
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      if_pred_hit_q    <= 1'b0;
+      if_pred_jal_q    <= 1'b0;
+      if_pred_dir_q    <= 1'b0;
+      if_pred_valid_q  <= 1'b0;
+      if_pred_target_q <= 32'd0;
+    end else if (!pc_hold) begin
+      if_pred_hit_q    <= btb_hit_f;
+      if_pred_jal_q    <= btb_jal_f;
+      if_pred_dir_q    <= bht_taken_f;
+      if_pred_valid_q  <= !(ex_redirect || trap_any || wfi_req);
+      if_pred_target_q <= btb_target_f;
+    end
+  end
+
   wire [31:0] pc_next = !rst_n                  ? RESET_PC :
                         (stall_young || draining || halted || wfi_wait) ? pc :
                         trap_any                ? csr_trap_pc :
                         wfi_req                 ? idex_pc + 32'd4 :
                         ex_redirect             ? ex_redirect_target :
                         id_redirect             ? id_redirect_target :
+                        if_predict              ? if_pred_target_q :
                                                   pc + 32'd4;
 
   assign imem_addr = pc_next;
@@ -130,22 +184,30 @@ module core #(
   // ================= IF/ID 流水线寄存器 =================
   logic [31:0] ifid_pc, ifid_instr;
   logic        ifid_valid;   // IF/ID 含真实指令（冲刷注入的 NOP 气泡为 0）
+  logic        ifid_pred_if;      // 本条在 IF 级被 BTB 预测跳转
+  logic [31:0] ifid_pred_target;  // IF 级预测目标（EX 级比对用）
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      ifid_pc    <= 32'd0;
-      ifid_instr <= NOP;
-      ifid_valid <= 1'b0;
+      ifid_pc          <= 32'd0;
+      ifid_instr       <= NOP;
+      ifid_valid       <= 1'b0;
+      ifid_pred_if     <= 1'b0;
+      ifid_pred_target <= 32'd0;
     end else if (stall_young) begin
       // 保持
     end else if (ex_redirect || id_redirect || id_halt_accept || draining
                  || trap_any || wfi_req) begin
-      ifid_instr <= NOP;                    // 冲刷 / 停机后停止取指
-      ifid_valid <= 1'b0;
+      ifid_instr   <= NOP;                    // 冲刷 / 停机后停止取指
+      ifid_valid   <= 1'b0;
+      ifid_pred_if <= 1'b0;
     end else begin
-      ifid_pc    <= pc;
-      ifid_instr <= instr_f;
-      ifid_valid <= 1'b1;
+      ifid_pc          <= pc;
+      ifid_instr       <= instr_f;
+      ifid_valid       <= 1'b1;
+      // 预测标记与指令同拍进入 ID 级：本条若已在 IF 级改向，ID 级不再重复
+      ifid_pred_if     <= if_predict;
+      ifid_pred_target <= if_pred_target_q;
     end
   end
 
@@ -168,12 +230,30 @@ module core #(
   wire bht_update_en;
 
   bht #(.INDEX_BITS(BHT_BITS)) bht_i (
+    .clk            (clk),
+    .predict_pc     (ifid_pc),
+    .predict_taken  (predict_taken_d),
+    .predict2_pc    (btb_lookup_addr),
+    .predict2_taken (bht_taken_f),
+    .update_en      (bht_update_en),
+    .update_pc      (idex_pc),
+    .update_taken   (bht_update_taken)
+  );
+
+  // 取指级 BTB：以 btb_lookup_addr 索引（与取指同拍流水，结果寄存一拍；
+  // 不跟踪 EX 级重定向/陷入/WFI 改向，原因见上方「时序关键取舍」）；EX 级
+  // 解析后登记实际 taken 的分支与 JAL（btb_update_en/target_e 见 EX 级）
+  btb #(.INDEX_BITS(BTB_BITS)) btb_i (
     .clk           (clk),
-    .predict_pc    (ifid_pc),
-    .predict_taken (predict_taken_d),
-    .update_en     (bht_update_en),
+    .rst_n         (rst_n),
+    .lookup_pc     (btb_lookup_addr),
+    .hit           (btb_hit_f),
+    .target        (btb_target_f),
+    .is_jal        (btb_jal_f),
+    .update_en     (btb_update_en),
     .update_pc     (idex_pc),
-    .update_taken  (bht_update_taken)
+    .update_target (target_e),
+    .update_is_jal (idex_ctrl.is_jal)
   );
 
   // ---- RAS：返回地址栈 ----
@@ -216,9 +296,16 @@ module core #(
   // 指令，压住不动；唤醒拍门控自动解除，改向照常发生）。压/弹栈同理
   // 门控，否则睡眠期 ret 滞留会每拍空弹 RAS 直至耗尽（行为正确但预测
   // 精度受损）
-  assign id_redirect        = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
-                               || ret_predict_d)
-                              && !draining && !halted && !ex_redirect && !trap_any
+  // !ifid_pred_if：本条已在 IF 级改向过（BTB 预测），取指已在目标路径上，
+  // 不得再次改向（否则把已在正确路径上的取指冲掉，白付 1 拍气泡）；预测
+  // 对错由 EX 级验证兜底（含 BHT 在 IF→ID 之间被更新翻转等情形）。
+  // id_redirect_req：不带 ex_redirect/trap_any 门控的请求版，仅供 BTB 查找
+  // 地址选择——那两类改向拍预测标记本来就作废（valid=0），门控与否不影响
+  // 正确性；去掉可把 EX 级长控制锥从 BTB 查找路径上彻底断开（时序关键）
+  wire id_redirect_req = (ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
+                          || ret_predict_d)
+                         && !draining && !halted && !ifid_pred_if;
+  assign id_redirect        = id_redirect_req && !ex_redirect && !trap_any
                               && !wfi_wait;
   assign id_redirect_target = ret_predict_d ? ras_top : ifid_pc + imm_d;
 
@@ -286,6 +373,8 @@ module core #(
   logic [4:0]  idex_rs1, idex_rs2, idex_rd;
   logic        idex_pred_taken;
   logic [31:0] idex_pred_target;  // RAS 预测的返回目标（兼作误预测恢复的旧栈顶）
+  logic        idex_pred_if;      // 本条在 IF 级被 BTB 预测跳转
+  logic [31:0] idex_pred_target_if;  // IF 级预测目标（EX 级比对用）
   logic [31:0] idex_ret_cand0, idex_ret_cand1;  // RAS 验证双候选（ID 级预计算）
   logic        idex_ras_pop;      // 本条在 ID 级弹过栈
   logic        idex_ras_push;     // 本条进入 EX 时压过栈
@@ -305,6 +394,8 @@ module core #(
       idex_rd         <= 5'd0;
       idex_pred_taken <= 1'b0;
       idex_pred_target <= 32'd0;
+      idex_pred_if     <= 1'b0;
+      idex_pred_target_if <= 32'd0;
       idex_ret_cand0  <= 32'd0;
       idex_ret_cand1  <= 32'd0;
       idex_ras_pop    <= 1'b0;
@@ -317,6 +408,7 @@ module core #(
     end else if (ex_redirect || trap_any || wfi_req) begin
       idex_ctrl       <= '0;                // 冲刷为气泡
       idex_pred_taken <= 1'b0;
+      idex_pred_if    <= 1'b0;
       idex_ras_pop    <= 1'b0;
       idex_ras_push   <= 1'b0;
       idex_valid      <= 1'b0;
@@ -332,12 +424,16 @@ module core #(
       idex_rs1        <= rs1_d;
       idex_rs2        <= rs2_d;
       idex_rd         <= rd_d;
-      // JAL 与 RAS 命中的返回已在 ID 级重定向，登记为预测跳转，EX 级不再按
-      // 方向重定向（返回仍需比对预测目标与真实目标）；同时记录 RAS 操作痕迹，
-      // 供 EX 级误预测时撤销弹栈
-      idex_pred_taken  <= ctrl_d.is_jal || (ctrl_d.is_branch && predict_taken_d)
+      // JAL 与 RAS 命中的返回已在 ID 级重定向、IF 级 BTB 命中的已改向，
+      // 均登记为预测跳转，EX 级不再按方向重定向（返回与 IF 级预测仍需比对
+      // 预测目标与真实目标）；同时记录 RAS 操作痕迹，供 EX 级误预测时撤销
+      // 弹栈
+      idex_pred_taken  <= ifid_pred_if || ctrl_d.is_jal
+                          || (ctrl_d.is_branch && predict_taken_d)
                           || (ret_predict_d && !draining && !halted);
       idex_pred_target <= ras_top;
+      idex_pred_if     <= ifid_pred_if;
+      idex_pred_target_if <= ifid_pred_target;
       idex_ret_cand0   <= ret_cand0_d;
       idex_ret_cand1   <= ret_cand1_d;
       idex_ras_pop     <= ret_predict_d && !draining && !halted;
@@ -537,8 +633,16 @@ module core #(
   wire bht_update_taken = cond_e;
   assign bht_update_en  = idex_ctrl.is_branch && !stall && !halted;
 
-  // 跳转/分支解析：未预测的 JALR（间接跳转）必然重定向；JAL 已在 ID 级重定向
-  // （必然命中）；条件分支比较预测与实际；RAS 命中的返回额外比对预测目标
+  // BTB 登记（点位口径与 BHT 更新一致）：实际 taken 的分支与 JAL 登记目标，
+  // 未 taken 不登记（方向由 BHT 把关，旧条目保留无害）。目标非对齐的 taken
+  // CTI 被 trap_cti 撤销，不登记（避免向非对齐目标改向）；JALR 不进表——
+  // 返回由 RAS 覆盖，间接跳转实测占比约 0.18% 已否决
+  assign btb_update_en  = (idex_ctrl.is_jal || (idex_ctrl.is_branch && cond_e))
+                          && !stall && !halted && !cti_mis_e;
+
+  // 跳转/分支解析：未预测的 JALR（间接跳转）必然重定向；JAL 已在 IF/ID 级
+  // 改向（必然命中）；条件分支比较预测与实际；IF 级 BTB 预测与 RAS 命中
+  // 的返回额外比对预测目标
   wire        actual_taken_e = idex_ctrl.is_jal || idex_ctrl.is_jalr ||
                                (idex_ctrl.is_branch && cond_e);
   wire [31:0] target_e = idex_ctrl.is_jalr ? ((rs1_e + idex_imm) & ~32'd1)
@@ -549,6 +653,12 @@ module core #(
   // 不再依赖 rs1_e+imm 加法器的进位链
   wire jalr_pred_miss_e = idex_ctrl.is_jalr && idex_pred_taken &&
                           (rs1_e != idex_ret_cand0) && (rs1_e != idex_ret_cand1);
+
+  // IF 级预测兜底验证：方向/目标任一不符（含假命中到非跳转指令）即重定向
+  // 纠正，代价与既有误预测同量级。索引+tag 覆盖完整 pc 无假命中、目标由
+  // EX 级实测登记，正常不触发；是 tag 截断/代码自修改等情形的防线
+  wire if_pred_miss_e = idex_pred_if &&
+                        (!is_cti_e || !actual_taken_e || (target_e != idex_pred_target_if));
 
   // 取指目标非对齐（无 C 扩展，目标 bit1=1 即异常）：taken CTI 在 EX 级撤销——
   // 跳转指令本身被冲刷（EX/MEM 注入气泡，link 寄存器不写回），mepc=本条 pc、
@@ -564,7 +674,7 @@ module core #(
   assign mret_commit_e = mret_e && !stall && !draining && !halted && !trap_mem && !irq_take;
 
   assign ex_redirect        = ((is_cti_e && (actual_taken_e != idex_pred_taken))
-                               || jalr_pred_miss_e || mret_e)
+                               || if_pred_miss_e || jalr_pred_miss_e || mret_e)
                               && !cti_mis_e && !draining && !halted;
   assign ex_redirect_target = mret_e        ? csr_mepc :
                               actual_taken_e ? target_e : idex_pc + 32'd4;
@@ -754,6 +864,12 @@ module core #(
       $error("RAS 压栈 pc 非 4 对齐（ifid_pc=%h）", ifid_pc);
     if (ras_rewrite_e && idex_pred_target[1:0] != 2'b00)
       $error("RAS 撤销写回数据非 4 对齐（idex_pred_target=%h）", idex_pred_target);
+    // BTB 不变式：索引+tag 覆盖完整 pc，命中指令必是分支/JAL（无假命中）；
+    // 登记目标恒 4 对齐（目标非对齐的 taken CTI 被 !cti_mis_e 挡在表外）
+    if (ifid_pred_if && ifid_valid && !(ctrl_d.is_jal || ctrl_d.is_branch))
+      $error("BTB 预测命中的指令不是分支/JAL（ifid_pc=%h instr=%h）", ifid_pc, ifid_instr);
+    if (btb_update_en && target_e[1:0] != 2'b00)
+      $error("BTB 登记目标非 4 对齐（target=%h）", target_e);
   end
 `endif
 

@@ -101,7 +101,12 @@ module tb_soc;
   // 期间 pc 被 wfi_wait 优先保持，id_redirect 反复拉起并不发生真重定向，
   // 应用固件大部分时间在睡觉，不门控会严重虚增）。所探信号均为核心端口
   // 或非结构内部信号，SV/Verilog（rtl_v）两种 DUT 源码下层级路径均有效。
+  // （迭代五落地后语义变化：IF 级 BTB 已预测的指令在 ID 级被抑制改向，
+  // c1 计数口径变为「BTB 未命中的残余 ID 级改向」；IF 级改向次数由
+  // 下方 if_pred_evt 另计——带预测标记离开 ID 级的指令数，门控口径同
+  // ras_push_d，停顿/冲刷/WFI 不重复计数）
   int  c1_jal_cnt, c1_br_cnt, c1_ret_cnt, c1_other_cnt, c2_stblk_cnt, wfi_cnt;
+  int  if_pred_cnt;
   /* verilator lint_off UNUSEDSIGNAL */   // 只需操作码字段，其余位天然未用
   wire [31:0] id_instr = dut.imem_i.mem[dut.core_i.ifid_pc[IMEM_AW+1:2]];
   /* verilator lint_on UNUSEDSIGNAL */
@@ -111,6 +116,10 @@ module tb_soc;
                        !dut.core_i.trap_any &&
                        ex_instr[6:0] == 7'b0000011 &&              // EX 级为 load
                        dut.core_i.dmem_valid && dut.core_i.dmem_write;  // MEM 级 store
+  wire        if_pred_evt = dut.core_i.ifid_pred_if && !dut.core_i.stall_young &&
+                            !dut.core_i.ex_redirect && !dut.core_i.draining &&
+                            !dut.core_i.halted && !dut.core_i.trap_any &&
+                            !dut.core_i.wfi_req;
   always @(posedge clk) if (running) begin
     if (c1_evt) begin
       case (id_instr[6:0])
@@ -121,6 +130,7 @@ module tb_soc;
       endcase
     end
     if (c2_evt) c2_stblk_cnt <= c2_stblk_cnt + 1;
+    if (if_pred_evt) if_pred_cnt <= if_pred_cnt + 1;
     if (dut.core_i.wfi_wait) wfi_cnt <= wfi_cnt + 1;
   end
 
@@ -419,6 +429,8 @@ module tb_soc;
                c2_stblk_cnt, 100.0 * c2_stblk_cnt / cycle_cnt);
       $display("tb_soc: PERFSTAT 参考：WFI 睡眠 %0d 拍（占比 %.2f%%）",
                wfi_cnt, 100.0 * wfi_cnt / cycle_cnt);
+      $display("tb_soc: PERFSTAT 迭代五：IF 级 BTB 预测改向约 %0d 次（总周期 %0d，占 %.2f%%）",
+               if_pred_cnt, cycle_cnt, 100.0 * if_pred_cnt / cycle_cnt);
     end
     if (plan_file != "")
       $display("tb_soc: 注入执行 %0d/%0d 条", plan_done_cnt, plan_n);

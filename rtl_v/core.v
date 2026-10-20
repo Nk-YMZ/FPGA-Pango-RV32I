@@ -26,6 +26,7 @@ module core (
 	reg _sv2v_0;
 	parameter [31:0] RESET_PC = 32'h00000000;
 	parameter signed [31:0] BHT_BITS = 8;
+	parameter signed [31:0] BTB_BITS = 6;
 	parameter signed [31:0] RAS_DEPTH = 16;
 	input wire clk;
 	input wire rst_n;
@@ -69,11 +70,48 @@ module core (
 	reg wfi_sleep;
 	wire [2:0] ip_masked;
 	wire mie_status;
+	wire btb_hit_f;
+	wire btb_jal_f;
+	wire bht_taken_f;
+	wire [31:0] btb_target_f;
+	wire btb_update_en;
 	wire [31:0] csr_trap_pc;
 	wire wfi_wake = ip_masked != 3'b000;
 	wire wfi_wait = wfi_sleep && !wfi_wake;
+	reg if_pred_hit_q;
+	reg if_pred_jal_q;
+	reg if_pred_dir_q;
+	reg if_pred_valid_q;
+	reg [31:0] if_pred_target_q;
+	wire pc_hold = ((stall_young || draining) || halted) || wfi_wait;
+	wire if_predict = (if_pred_valid_q && if_pred_hit_q) && (if_pred_jal_q || if_pred_dir_q);
+	wire [27:0] ctrl_d;
+	reg ifid_pred_if;
+	wire predict_taken_d;
+	wire ras_empty;
+	wire [4:0] rs1_d;
+	wire link_rs1_d = (rs1_d == 5'd1) || (rs1_d == 5'd5);
+	wire ret_d = ctrl_d[11] && link_rs1_d;
+	wire ret_predict_d = ret_d && !ras_empty;
+	wire id_redirect_req = ((((ctrl_d[12] || (ctrl_d[13] && predict_taken_d)) || ret_predict_d) && !draining) && !halted) && !ifid_pred_if;
+	wire [31:0] btb_lookup_addr = (id_redirect_req ? id_redirect_target : (if_predict ? if_pred_target_q : pc + 32'd4));
+	always @(posedge clk or negedge rst_n)
+		if (!rst_n) begin
+			if_pred_hit_q <= 1'b0;
+			if_pred_jal_q <= 1'b0;
+			if_pred_dir_q <= 1'b0;
+			if_pred_valid_q <= 1'b0;
+			if_pred_target_q <= 32'd0;
+		end
+		else if (!pc_hold) begin
+			if_pred_hit_q <= btb_hit_f;
+			if_pred_jal_q <= btb_jal_f;
+			if_pred_dir_q <= bht_taken_f;
+			if_pred_valid_q <= !((ex_redirect || trap_any) || wfi_req);
+			if_pred_target_q <= btb_target_f;
+		end
 	reg [31:0] idex_pc;
-	wire [31:0] pc_next = (!rst_n ? RESET_PC : (((stall_young || draining) || halted) || wfi_wait ? pc : (trap_any ? csr_trap_pc : (wfi_req ? idex_pc + 32'd4 : (ex_redirect ? ex_redirect_target : (id_redirect ? id_redirect_target : pc + 32'd4))))));
+	wire [31:0] pc_next = (!rst_n ? RESET_PC : (((stall_young || draining) || halted) || wfi_wait ? pc : (trap_any ? csr_trap_pc : (wfi_req ? idex_pc + 32'd4 : (ex_redirect ? ex_redirect_target : (id_redirect ? id_redirect_target : (if_predict ? if_pred_target_q : pc + 32'd4)))))));
 	assign imem_addr = pc_next;
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n)
@@ -83,26 +121,30 @@ module core (
 	reg [31:0] ifid_pc;
 	reg [31:0] ifid_instr;
 	reg ifid_valid;
+	reg [31:0] ifid_pred_target;
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n) begin
 			ifid_pc <= 32'd0;
 			ifid_instr <= NOP;
 			ifid_valid <= 1'b0;
+			ifid_pred_if <= 1'b0;
+			ifid_pred_target <= 32'd0;
 		end
 		else if (stall_young)
 			;
 		else if (((((ex_redirect || id_redirect) || id_halt_accept) || draining) || trap_any) || wfi_req) begin
 			ifid_instr <= NOP;
 			ifid_valid <= 1'b0;
+			ifid_pred_if <= 1'b0;
 		end
 		else begin
 			ifid_pc <= pc;
 			ifid_instr <= instr_f;
 			ifid_valid <= 1'b1;
+			ifid_pred_if <= if_predict;
+			ifid_pred_target <= if_pred_target_q;
 		end
-	wire [27:0] ctrl_d;
 	wire [31:0] imm_d;
-	wire [4:0] rs1_d;
 	wire [4:0] rs2_d;
 	wire [4:0] rd_d;
 	decoder dec_i(
@@ -113,7 +155,6 @@ module core (
 		.rs2(rs2_d),
 		.rd(rd_d)
 	);
-	wire predict_taken_d;
 	wire bht_update_en;
 	reg cond_e;
 	wire bht_update_taken = cond_e;
@@ -121,19 +162,43 @@ module core (
 		.clk(clk),
 		.predict_pc(ifid_pc),
 		.predict_taken(predict_taken_d),
+		.predict2_pc(btb_lookup_addr),
+		.predict2_taken(bht_taken_f),
 		.update_en(bht_update_en),
 		.update_pc(idex_pc),
 		.update_taken(bht_update_taken)
 	);
+	reg [27:0] idex_ctrl;
+	reg [31:0] idex_imm;
+	wire [31:0] exmem_fwd_data;
+	reg [27:0] exmem_ctrl;
+	reg [4:0] exmem_rd;
+	reg [4:0] idex_rs1;
+	wire fwd1_mem = (exmem_ctrl[21] && (exmem_rd != 5'd0)) && (exmem_rd == idex_rs1);
+	reg [4:0] memwb_rd;
+	reg memwb_reg_write;
+	wire fwd1_wb = (memwb_reg_write && (memwb_rd != 5'd0)) && (memwb_rd == idex_rs1);
+	reg [31:0] idex_rs1_val;
+	reg [31:0] memwb_wb_data;
+	wire [31:0] rs1_e = (fwd1_mem ? exmem_fwd_data : (fwd1_wb ? memwb_wb_data : idex_rs1_val));
+	wire [31:0] target_e = (idex_ctrl[11] ? (rs1_e + idex_imm) & ~32'd1 : idex_pc + idex_imm);
+	btb #(.INDEX_BITS(BTB_BITS)) btb_i(
+		.clk(clk),
+		.rst_n(rst_n),
+		.lookup_pc(btb_lookup_addr),
+		.hit(btb_hit_f),
+		.target(btb_target_f),
+		.is_jal(btb_jal_f),
+		.update_en(btb_update_en),
+		.update_pc(idex_pc),
+		.update_target(target_e),
+		.update_is_jal(idex_ctrl[12])
+	);
 	wire [31:0] ras_top;
-	wire ras_empty;
 	wire ras_undo_pop_e;
 	wire ras_rewrite_e;
-	wire link_rs1_d = (rs1_d == 5'd1) || (rs1_d == 5'd5);
 	wire link_rd_d = (rd_d == 5'd1) || (rd_d == 5'd5);
 	wire call_d = (ctrl_d[12] || ctrl_d[11]) && link_rd_d;
-	wire ret_d = ctrl_d[11] && link_rs1_d;
-	wire ret_predict_d = ret_d && !ras_empty;
 	wire ras_push_d = (((((call_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any) && !wfi_wait;
 	wire ras_pop_d = (((((ret_predict_d && !stall_young) && !ex_redirect) && !draining) && !halted) && !trap_any) && !wfi_wait;
 	reg [31:0] idex_pred_target;
@@ -149,14 +214,11 @@ module core (
 		.rewrite_en(ras_rewrite_e),
 		.rewrite_data(idex_pred_target)
 	);
-	assign id_redirect = ((((((ctrl_d[12] || (ctrl_d[13] && predict_taken_d)) || ret_predict_d) && !draining) && !halted) && !ex_redirect) && !trap_any) && !wfi_wait;
+	assign id_redirect = ((id_redirect_req && !ex_redirect) && !trap_any) && !wfi_wait;
 	assign id_redirect_target = (ret_predict_d ? ras_top : ifid_pc + imm_d);
 	wire [31:0] ret_cand0_d = ras_top - imm_d;
 	wire [31:0] ret_cand1_d = {ras_top[31:1], 1'b1} - imm_d;
 	wire mtvec_valid;
-	reg [27:0] idex_ctrl;
-	reg [31:0] idex_imm;
-	reg [4:0] idex_rs1;
 	wire mtvec_cfg_d = mtvec_valid || ((idex_ctrl[6] && (idex_imm[11:0] == 12'h305)) && ((idex_ctrl[9:8] == 2'b01) || (idex_rs1 != 5'd0)));
 	wire halt_req_d = (ctrl_d[2] || ctrl_d[1]) || ctrl_d[0];
 	wire exc_ok_d = ((halt_req_d && !ex_redirect) && !stall_young) && !trap_any;
@@ -189,11 +251,12 @@ module core (
 	);
 	wire [31:0] rs1_val_d = ((wb_reg_write && (wb_rd != 5'd0)) && (wb_rd == rs1_d) ? wb_data : rs1_val_rf);
 	wire [31:0] rs2_val_d = ((wb_reg_write && (wb_rd != 5'd0)) && (wb_rd == rs2_d) ? wb_data : rs2_val_rf);
-	reg [31:0] idex_rs1_val;
 	reg [31:0] idex_rs2_val;
 	reg [4:0] idex_rs2;
 	reg [4:0] idex_rd;
 	reg idex_pred_taken;
+	reg idex_pred_if;
+	reg [31:0] idex_pred_target_if;
 	reg [31:0] idex_ret_cand0;
 	reg [31:0] idex_ret_cand1;
 	reg idex_ras_pop;
@@ -213,6 +276,8 @@ module core (
 			idex_rd <= 5'd0;
 			idex_pred_taken <= 1'b0;
 			idex_pred_target <= 32'd0;
+			idex_pred_if <= 1'b0;
+			idex_pred_target_if <= 32'd0;
 			idex_ret_cand0 <= 32'd0;
 			idex_ret_cand1 <= 32'd0;
 			idex_ras_pop <= 1'b0;
@@ -226,6 +291,7 @@ module core (
 		else if ((ex_redirect || trap_any) || wfi_req) begin
 			idex_ctrl <= 1'sb0;
 			idex_pred_taken <= 1'b0;
+			idex_pred_if <= 1'b0;
 			idex_ras_pop <= 1'b0;
 			idex_ras_push <= 1'b0;
 			idex_valid <= 1'b0;
@@ -241,8 +307,10 @@ module core (
 			idex_rs1 <= rs1_d;
 			idex_rs2 <= rs2_d;
 			idex_rd <= rd_d;
-			idex_pred_taken <= (ctrl_d[12] || (ctrl_d[13] && predict_taken_d)) || ((ret_predict_d && !draining) && !halted);
+			idex_pred_taken <= ((ifid_pred_if || ctrl_d[12]) || (ctrl_d[13] && predict_taken_d)) || ((ret_predict_d && !draining) && !halted);
 			idex_pred_target <= ras_top;
+			idex_pred_if <= ifid_pred_if;
+			idex_pred_target_if <= ifid_pred_target;
 			idex_ret_cand0 <= ret_cand0_d;
 			idex_ret_cand1 <= ret_cand1_d;
 			idex_ras_pop <= (ret_predict_d && !draining) && !halted;
@@ -251,17 +319,8 @@ module core (
 			idex_halt <= (halt_req_d ? halt_code_d : 3'd0);
 			idex_exc_tval <= (halt_req_d && ctrl_d[0] ? ifid_instr : 32'd0);
 		end
-	wire [31:0] exmem_fwd_data;
-	reg [27:0] exmem_ctrl;
-	reg [31:0] memwb_wb_data;
-	reg [4:0] exmem_rd;
-	reg memwb_reg_write;
-	reg [4:0] memwb_rd;
-	wire fwd1_mem = (exmem_ctrl[21] && (exmem_rd != 5'd0)) && (exmem_rd == idex_rs1);
-	wire fwd1_wb = (memwb_reg_write && (memwb_rd != 5'd0)) && (memwb_rd == idex_rs1);
 	wire fwd2_mem = (exmem_ctrl[21] && (exmem_rd != 5'd0)) && (exmem_rd == idex_rs2);
 	wire fwd2_wb = (memwb_reg_write && (memwb_rd != 5'd0)) && (memwb_rd == idex_rs2);
-	wire [31:0] rs1_e = (fwd1_mem ? exmem_fwd_data : (fwd1_wb ? memwb_wb_data : idex_rs1_val));
 	wire [31:0] rs2_e = (fwd2_mem ? exmem_fwd_data : (fwd2_wb ? memwb_wb_data : idex_rs2_val));
 	reg [31:0] csr_wdata_e;
 	wire [31:0] csr_rdata;
@@ -310,7 +369,6 @@ module core (
 	wire [4:0] trap_code = (irq_take ? irq_code : (trap_mem ? (mem_req && misaligned ? (exmem_ctrl[17] ? 5'd6 : 5'd4) : (exmem_ctrl[17] ? 5'd7 : 5'd5)) : (trap_cti ? 5'd0 : exc_code_e)));
 	reg [31:0] exmem_pc;
 	wire [31:0] trap_mepc = (trap_mem ? exmem_pc : idex_pc);
-	wire [31:0] target_e = (idex_ctrl[11] ? (rs1_e + idex_imm) & ~32'd1 : idex_pc + idex_imm);
 	wire [31:0] trap_tval = (trap_mem ? exmem_alu : (irq_take ? 32'd0 : (trap_cti ? target_e : idex_exc_tval)));
 	csr_file csr_i(
 		.clk(clk),
@@ -378,13 +436,15 @@ module core (
 	end
 	assign bht_update_en = (idex_ctrl[13] && !stall) && !halted;
 	wire actual_taken_e = (idex_ctrl[12] || idex_ctrl[11]) || (idex_ctrl[13] && cond_e);
+	wire cti_mis_e = actual_taken_e && target_e[1];
+	assign btb_update_en = (((idex_ctrl[12] || (idex_ctrl[13] && cond_e)) && !stall) && !halted) && !cti_mis_e;
 	wire is_cti_e = (idex_ctrl[13] || idex_ctrl[12]) || idex_ctrl[11];
 	wire jalr_pred_miss_e = ((idex_ctrl[11] && idex_pred_taken) && (rs1_e != idex_ret_cand0)) && (rs1_e != idex_ret_cand1);
-	wire cti_mis_e = actual_taken_e && target_e[1];
+	wire if_pred_miss_e = idex_pred_if && ((!is_cti_e || !actual_taken_e) || (target_e != idex_pred_target_if));
 	assign trap_cti = ((((cti_mis_e && mtvec_valid) && !stall) && !draining) && !halted) && !trap_mem;
 	wire mret_e = idex_ctrl[4];
 	assign mret_commit_e = ((((mret_e && !stall) && !draining) && !halted) && !trap_mem) && !irq_take;
-	assign ex_redirect = (((((is_cti_e && (actual_taken_e != idex_pred_taken)) || jalr_pred_miss_e) || mret_e) && !cti_mis_e) && !draining) && !halted;
+	assign ex_redirect = ((((((is_cti_e && (actual_taken_e != idex_pred_taken)) || if_pred_miss_e) || jalr_pred_miss_e) || mret_e) && !cti_mis_e) && !draining) && !halted;
 	assign ex_redirect_target = (mret_e ? csr_mepc : (actual_taken_e ? target_e : idex_pc + 32'd4));
 	assign dbg_mispredict = (((ex_redirect && idex_ctrl[13]) && !stall) && !trap_mem) && !irq_take;
 	wire ras_restore_e = (((((ex_redirect && idex_ctrl[11]) || trap_mem) || irq_take) || trap_cti) && idex_ras_pop) && !stall;

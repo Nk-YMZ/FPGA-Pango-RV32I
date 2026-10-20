@@ -11,11 +11,11 @@ REQ addr=05 start=0000 nreg=2
 TIMEOUT addr=05 thresh=5632cyc no-response
 DIAG offline addr=05 tout=2
 LOG n=5 drop=0
-LOG #1 ts=64154 timeout addr=05 aux=1
-LOG #2 ts=64154 offline addr=05 aux=1
-LOG #3 ts=71353 recover addr=05 aux=0
-LOG #4 ts=96822 timeout addr=05 aux=2
-LOG #5 ts=96822 offline addr=05 aux=2
+LOG #1 ts=64599 timeout addr=05 aux=1
+LOG #2 ts=64599 offline addr=05 aux=1
+LOG #3 ts=72013 recover addr=05 aux=0
+LOG #4 ts=97037 timeout addr=05 aux=2
+LOG #5 ts=97037 offline addr=05 aux=2
 alarm=1
 OK alarm=0
 alarm=0

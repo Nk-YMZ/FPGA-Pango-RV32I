@@ -7,6 +7,7 @@ module tb_bht;
   logic        clk;
   logic [31:0] predict_pc;
   logic        predict_taken;
+  logic        predict2_taken;   // 第二读口：与主口同地址，行为应一致
   logic        update_en;
   logic [31:0] update_pc;
   logic        update_taken;
@@ -14,6 +15,7 @@ module tb_bht;
   bht #(.INDEX_BITS(4)) dut (
     .clk(clk),
     .predict_pc(predict_pc), .predict_taken(predict_taken),
+    .predict2_pc(predict_pc), .predict2_taken(predict2_taken),
     .update_en(update_en), .update_pc(update_pc), .update_taken(update_taken)
   );
 
@@ -35,6 +37,10 @@ module tb_bht;
     if (predict_taken !== exp) begin
       errors++;
       $display("FAIL: %s  predict_taken=%b 期望 %b", name, predict_taken, exp);
+    end
+    if (predict2_taken !== exp) begin
+      errors++;
+      $display("FAIL: %s  第二读口 predict2_taken=%b 期望 %b", name, predict2_taken, exp);
     end
   endtask
 

@@ -19,7 +19,7 @@ UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，以及应用环节的 ua
 - ✅ 三层随机化测试（`make rand` / `make randtrap` / `make randirq`）全量通过，
   最近一轮全量复测各 100 个种子无一失败
 - ✅ 应用 demo 全链路闭环：`make demo` 15 个总线场景 + 命令接口场景×2 golden diff 通过
-- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,547,147 周期（见 `bench/results.csv`）
+- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,232,509 周期（见 `bench/results.csv`）
 
 ## 目录
 

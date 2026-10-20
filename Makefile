@@ -42,7 +42,7 @@ endif
 RISCV       := riscv64-elf-
 RISCV_FLAGS := -march=rv32im_zicsr -mabi=ilp32 -nostdlib -nostartfiles
 
-UNITS := alu muldiv decoder bht ras uart gpio csr_file mtimer uart_mon
+UNITS := alu muldiv decoder bht btb ras uart gpio csr_file mtimer uart_mon
 
 # 全部为伪目标；bench 尤其重要：仓库存在同名 bench/ 目录，
 # 不声明 .PHONY 时 make 会拿目录 mtime 与依赖比较，可能静默跳过跑分

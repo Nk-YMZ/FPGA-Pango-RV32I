@@ -8,6 +8,7 @@ rtl/muldiv.sv
 rtl/regfile.sv
 rtl/decoder.sv
 rtl/bht.sv
+rtl/btb.sv
 rtl/ras.sv
 rtl/csr_file.sv
 rtl/core.sv

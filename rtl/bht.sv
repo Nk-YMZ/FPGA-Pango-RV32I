@@ -10,6 +10,9 @@ module bht #(
   // 预测读端口（组合读，ID 级使用）
   input  wire [31:0] predict_pc,
   output wire        predict_taken,
+  // 第二预测读端口（组合读，IF 级取指侧：BTB 命中的条件分支判方向用）
+  input  wire [31:0] predict2_pc,
+  output wire        predict2_taken,
   // 更新端口（同步写，EX 级解析分支后置位）
   input  wire        update_en,
   input  wire [31:0] update_pc,
@@ -22,6 +25,7 @@ module bht #(
 
   // PC 中只有部分位参与索引，其余位有意不用
   wire _unused_pc = &{1'b0, predict_pc[31:INDEX_BITS+2], predict_pc[1:0],
+                      predict2_pc[31:INDEX_BITS+2], predict2_pc[1:0],
                       update_pc[31:INDEX_BITS+2], update_pc[1:0]};
 
   // 复位为弱不跳（01），上电初期倾向不跳转
@@ -30,9 +34,11 @@ module bht #(
   end
 
   wire [INDEX_BITS-1:0] predict_idx = predict_pc[INDEX_BITS+1:2];
+  wire [INDEX_BITS-1:0] predict2_idx = predict2_pc[INDEX_BITS+1:2];
   wire [INDEX_BITS-1:0] update_idx  = update_pc[INDEX_BITS+1:2];
 
-  assign predict_taken = cnt[predict_idx][1];
+  assign predict_taken  = cnt[predict_idx][1];
+  assign predict2_taken = cnt[predict2_idx][1];
 
   always_ff @(posedge clk) begin
     if (update_en) begin

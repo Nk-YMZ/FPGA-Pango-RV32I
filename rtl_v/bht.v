@@ -5,6 +5,8 @@ module bht (
 	clk,
 	predict_pc,
 	predict_taken,
+	predict2_pc,
+	predict2_taken,
 	update_en,
 	update_pc,
 	update_taken
@@ -13,20 +15,24 @@ module bht (
 	input wire clk;
 	input wire [31:0] predict_pc;
 	output wire predict_taken;
+	input wire [31:0] predict2_pc;
+	output wire predict2_taken;
 	input wire update_en;
 	input wire [31:0] update_pc;
 	input wire update_taken;
 	localparam signed [31:0] ENTRIES = 2 ** INDEX_BITS;
 	reg [1:0] cnt [0:ENTRIES - 1];
-	wire _unused_pc = &{1'b0, predict_pc[31:INDEX_BITS + 2], predict_pc[1:0], update_pc[31:INDEX_BITS + 2], update_pc[1:0]};
+	wire _unused_pc = &{1'b0, predict_pc[31:INDEX_BITS + 2], predict_pc[1:0], predict2_pc[31:INDEX_BITS + 2], predict2_pc[1:0], update_pc[31:INDEX_BITS + 2], update_pc[1:0]};
 	initial begin : sv2v_autoblock_1
 		reg signed [31:0] i;
 		for (i = 0; i < ENTRIES; i = i + 1)
 			cnt[i] = 2'b01;
 	end
 	wire [INDEX_BITS - 1:0] predict_idx = predict_pc[INDEX_BITS + 1:2];
+	wire [INDEX_BITS - 1:0] predict2_idx = predict2_pc[INDEX_BITS + 1:2];
 	wire [INDEX_BITS - 1:0] update_idx = update_pc[INDEX_BITS + 1:2];
 	assign predict_taken = cnt[predict_idx][1];
+	assign predict2_taken = cnt[predict2_idx][1];
 	always @(posedge clk)
 		if (update_en) begin
 			if (update_taken)
