@@ -37,7 +37,8 @@ module dmem (
 			pf_q <= pf;
 	assign ready = ((state == 1'd1) || pf_q) || write;
 	reg [31:0] rdata_reg;
-	wire [AW - 1:0] sample_idx = (pf ? pf_addr[AW + 1:2] : addr[AW + 1:2]);
+	wire wr_fire = (valid && write) && ready;
+	wire [AW - 1:0] sample_idx = (pf ? pf_addr[AW + 1:2] : (wr_fire ? {addr[AW + 1:3], ~addr[2]} : addr[AW + 1:2]));
 	always @(posedge clk) rdata_reg <= mem[sample_idx];
 	assign rdata = rdata_reg;
 	always @(posedge clk)

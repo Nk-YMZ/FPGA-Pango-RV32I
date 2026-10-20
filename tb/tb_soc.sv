@@ -124,8 +124,21 @@ module tb_soc;
     if (dut.core_i.wfi_wait) wfi_cnt <= wfi_cnt + 1;
   end
 
-  // ---- ACT tohost 监视（+TOHOST=<addr> 启用）----
+  // ---- dmem 写拍读口避让不变式（迭代四防回归；常开，属判定链）----
+  // 双口 BRAM 同拍同地址读写是硬冲突（真机读数无定义）：写拍读口采样
+  // 字索引必须避开写地址字索引。盯内部 sample_idx（手法同 tb_uart_mon
+  // 盯 dut.push）；写拍当拍完成无跨拍保持，无需额外门控。MEM_AW 与
+  // dmem 内部 AW 同源（均按 MEM_BYTES 推导），索引位宽一致。
+  // 违反即 $fatal 立即失败（同超时判法），不等结束——不变式破坏说明
+  // RTL 改动引入了冲突，越早暴露越好
   localparam int MEM_AW = $clog2(MEM_BYTES / 4);
+  always @(posedge clk) if (running &&
+      dut.dmem_i.valid && dut.dmem_i.write && dut.dmem_i.ready &&
+      dut.dmem_i.sample_idx == dut.dmem_i.addr[MEM_AW+1:2])
+    $fatal(1, "tb_soc: dmem 写拍读口采样到写口同地址（字索引 %0d），双口 BRAM 硬冲突",
+           dut.dmem_i.sample_idx);
+
+  // ---- ACT tohost 监视（+TOHOST=<addr> 启用）----
 
   logic [31:0] tohost_addr;
   logic        act_done;

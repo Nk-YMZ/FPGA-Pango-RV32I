@@ -51,9 +51,17 @@ module dmem #(
 
   logic [31:0] rdata_reg;
 
+  // 写拍标志：与写口 firing 条件同源，供读口地址避让使用
+  wire wr_fire = valid && write && ready;
+
   // 同步读：BRAM 推断模板（每拍采样地址）。预取拍采样预取地址，
-  // 否则采样总线地址（回退路径的地址拍；其余拍采样结果无人使用）
-  wire [AW-1:0] sample_idx = pf ? pf_addr[AW+1:2] : addr[AW+1:2];
+  // 写拍采样相邻字地址（字索引最低位取反，写法依赖 AW>=2）——避开双口
+  // BRAM 同拍同地址读写硬冲突（该拍读数本就无人使用，行为不变；预取只
+  // 发生在 load 拍，与写拍互斥，不受影响）；其余拍采样总线地址（回退
+  // 路径的地址拍；剩余拍采样结果无人使用）
+  wire [AW-1:0] sample_idx = pf      ? pf_addr[AW+1:2] :
+                              wr_fire ? {addr[AW+1:3], ~addr[2]} :
+                                        addr[AW+1:2];
   always_ff @(posedge clk) begin
     rdata_reg <= mem[sample_idx];
   end
