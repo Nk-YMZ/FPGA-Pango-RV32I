@@ -1,0 +1,93 @@
+﻿{
+    "status":  "FAIL",
+    "mode":  "existing-hex",
+    "firmware_compiled":  false,
+    "firmware_file":  "D:\\1014\\coremark.hex",
+    "firmware_sha256":  "9153949E84F0549C2613A7937784E6CD15283D6BC3C6AA84CCB8FFF8AC32B042",
+    "requested_iterations":  0,
+    "timeout_cycles":  100000000,
+    "rtl_directory":  "D:\\repo_main\\rtl 1020",
+    "testbench":  "D:\\1014\\fixed_project\\tb\\tb_soc.sv",
+    "rtl_modified":  false,
+    "simulation_rtl_directory":  "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl",
+    "initialization_redirects":  [
+
+                                 ],
+    "build":  "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build",
+    "logs":  "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\logs",
+    "official_duration_valid":  false,
+    "score_assumption":  "Total ticks are CPU clock cycles, as in the original port",
+    "rtl_hashes":  [
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\alu.v",
+                           "sha256":  "FB654C82F9E1F5729A65E314E88A3393AF6CB3D814B826ABB0B43985B918028F"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\muldiv.v",
+                           "sha256":  "B475B0F16165F4B8D009E0A12F246DA1AB020AB696D17AB65B470BFD0525C513"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\regfile.v",
+                           "sha256":  "1175651B35077A78A955FAE81A8BBBB2D9C6111FAD9A6199F98601DC2B20D2AC"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\decoder.v",
+                           "sha256":  "CC07B937CC3B39895B58DB3D6F0AE0AAF443B069C3AB0FAC3B9AD79ECD5C96C8"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\bht.v",
+                           "sha256":  "9CF8E6A552197A9DDE281FC0AF99EC3EDA97C3E61992355D1D8577DCC76B912B"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\btb.v",
+                           "sha256":  "4819CCB71F1E3B5B08D34647419A81AFC1A29D680094642174E490558B068B8C"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\ras.v",
+                           "sha256":  "370DD796E3F2AAC576D8A50B340391D93A10D15957EE4DE310DF4F6141310B0F"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\csr_file.v",
+                           "sha256":  "6DA948FE744DDD40EC93394C37D57EC45F1F03456B8DDF4F42771772D0208D44"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\core.v",
+                           "sha256":  "34DE12602B11CB8EE2F8B67E27A8B721F5DB42194E8C5BBCA7D298F3FF42C71B"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\imem.v",
+                           "sha256":  "EF82600F3CFBBAF28173C10890080200C092AC322D60EDEE592E0214BAB0CDFA"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\dmem.v",
+                           "sha256":  "1B35C9905E2A065A99581AF89DB85C4906BE0FEEF26E13124DF79412B9905D19"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\uart.v",
+                           "sha256":  "4E060ACEDDD5BD1DFA437EFB2DE3498CB0AACF47AADD07388ADCE099E636602E"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\gpio.v",
+                           "sha256":  "209D3A0BA17F3FEE8D5AD7CB7320248BDED3FED03E954BD3DFE41B9E5474D46C"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\cyclectr.v",
+                           "sha256":  "162FFCEAD5BCB58E4192CD2FC06265B501CD558BD04389A720EC13BC9829360F"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\mtimer.v",
+                           "sha256":  "944F3A4090072BEEEEFC1514A92562B8274139A425D290C4DCD9BDF2251D6B36"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\soc_top.v",
+                           "sha256":  "5631ABD6A53164AB6B4F12728D6619BCE886054EDEFDF017A53C7EE73859D649"
+                       },
+                       {
+                           "file":  "D:\\repo_main\\rtl 1020\\uart_mon.v",
+                           "sha256":  "AB577FFC28B71A96650AFCC812DED05073A58D6F1223CF68F3D7519D7C9A07BC"
+                       }
+                   ],
+    "error":  "Process failed (1): verilator.log\n      |              ^~\n%Warning-WIDTHEXPAND: D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94\nf4dc7c944\\build\\rtl\\core.v:523:15: Operator ASSIGNDLY expects 28 bits on the Assign RHS, but Assign RHS\u0027s CONST \u00271\u0027sh0\u0027\n generates 1 bits.\n                                                                                                                       \n                                 : ... note: In instance \u0027tb_soc.dut.core_i\u0027\n  523 |    exmem_ctrl \u003c= 1\u0027sb0;\n      |               ^~\n%Warning-WIDTHEXPAND: D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94\nf4dc7c944\\build\\rtl\\core.v:529:16: Operator ASSIGNDLY expects 28 bits on the Assign RHS, but Assign RHS\u0027s CONST \u00271\u0027sh0\u0027\n generates 1 bits.\n                                                                                                                       \n                                 : ... note: In instance \u0027tb_soc.dut.core_i\u0027\n  529 |     exmem_ctrl \u003c= 1\u0027sb0;\n      |                ^~\n%Error: Exiting due to 1 error(s)",
+    "firmware_sha256_after":  "9153949E84F0549C2613A7937784E6CD15283D6BC3C6AA84CCB8FFF8AC32B042",
+    "firmware_unchanged":  true
+}

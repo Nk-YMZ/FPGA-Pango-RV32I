@@ -1,0 +1,39 @@
+﻿[
+    {
+        "executable":  "D:\\msys64\\ucrt64\\bin\\verilator_bin.exe",
+        "arguments":  [
+                          "--cc",
+                          "--main",
+                          "--timing",
+                          "-Wall",
+                          "-Wno-DECLFILENAME",
+                          "-Wno-fatal",
+                          "--timescale",
+                          "1ns/1ps",
+                          "--Mdir",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\obj_soc",
+                          "--top-module",
+                          "tb_soc",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\alu.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\muldiv.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\regfile.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\decoder.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\bht.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\btb.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\ras.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\csr_file.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\core.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\imem.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\dmem.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\uart.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\gpio.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\cyclectr.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\mtimer.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\soc_top.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\rtl\\uart_mon.v",
+                          "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build\\tb_soc.sv"
+                      ],
+        "cwd":  "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\build",
+        "log":  "D:\\repo_main\\rtl 1020\\coremark_runs\\existing_hex_runs\\20261021_023710_139_87c941f98ec84d5e94eaa94f4dc7c944\\logs\\verilator.log"
+    }
+]
