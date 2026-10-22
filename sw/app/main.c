@@ -207,8 +207,9 @@ static void tick_process(void)
  * 过慢→碎帧），字节数对两种形态都敏感。既有 demo 场景最长连续
  * 无效流量仅 24 字节（interference 3 帧），两个阈值均不会误触发。
  * 扫描：候选位周期表轮询——en=0 窗口写 BITDIV、clear、重新使能，
- * 开 48 字符观察窗，窗内 CRC 有效帧 ≥2 即锁定（单帧假阳性 1/65536，
- * 2 帧足够稳健；CRC 复用 proto 层同一实现）。窗满未锁定换下一候选，
+ * 开 48 字符基础观察窗，CRC 有效帧 ≥2 即锁定。已开始接收的短帧留有界
+ * 收尾时间；得到首帧有效证据后，额外等待最多 2 秒确认第二帧，兼容
+ * 稀疏轮询（不降低双帧 CRC 判据）。没有证据则继续切换候选。
  * 整表循环——总线空闲时保持扫描等流量，命令接口不受影响。锁定后
  * 按新位周期重算切帧/超时阈值与节拍并 proto_init 清零重计：误配
  * 期间的垃圾统计不可信，不入账（此前已打印的 FRAME 行是误配症状
@@ -231,6 +232,7 @@ static void tick_process(void)
 #define BAUD_BAIL_BYTES  512u   /* 兜底：2×协议最长帧，永不收帧形态无条件触发 */
 #define SCAN_WIN_CHARS  48u     /* 每候选观察窗（字符时间） */
 #define SCAN_FMAX       32u     /* 扫描验证器帧缓冲上限（超长帧判无效） */
+#define SCAN_CONFIRM_CYCLES (MON_FCLK * 2u) /* 首帧有效后等待下一帧的有界时间 */
 static const uint16_t baud_cands[] = {
     MON_FCLK / 115200u, MON_FCLK / 57600u, MON_FCLK / 38400u,
     MON_FCLK / 19200u,  MON_FCLK / 9600u,
@@ -249,7 +251,10 @@ static uint32_t invalid_prev;       /* 无效帧计数快照（连续无效帧�
 static uint32_t feed_n_at_valid;    /* 上一有效帧时的字节喂入计数 */
 static uint8_t  scan_buf[SCAN_FMAX];
 static uint32_t scan_flen, scan_last_ts, scan_valid;
+static uint32_t scan_first_valid;   /* 首帧有效证据的本候选时间戳 */
 static int      scan_bad;           /* 当前扫描帧超长或带串口帧错误 */
+static int      timeout_manual;     /* 手动超时按真实时钟周期保存，重锁不覆盖 */
+static uint32_t timeout_manual_cycles;
 
 /* 扫描帧关闭：CRC 通过且无帧错误、长度合法才算有效帧 */
 static void scan_close(void)
@@ -257,8 +262,10 @@ static void scan_close(void)
     if (!scan_bad && scan_flen >= 4) {
         uint16_t c = proto_crc16(scan_buf, scan_flen - 2);
         if (scan_buf[scan_flen - 2] == (uint8_t)(c & 0xFFu)
-            && scan_buf[scan_flen - 1] == (uint8_t)(c >> 8))
+            && scan_buf[scan_flen - 1] == (uint8_t)(c >> 8)) {
+            if (scan_valid == 0) scan_first_valid = scan_last_ts;
             scan_valid++;
+        }
     }
     scan_flen = 0;
 }
@@ -287,6 +294,7 @@ static void scan_begin(void)
     ev_tail = ev_head;              /* 丢弃切换窗口期积压的垃圾记录 */
     scan_flen = 0;
     scan_valid = 0;
+    scan_first_valid = 0;
     win_start = MON_NOW;            /* clear 已归零，约为 0 */
 }
 
@@ -298,6 +306,7 @@ static void scan_lock(void)
     bitdiv = baud_cands[cand_idx];
     uint32_t gap = bitdiv * 11u * 7u / 2u;
     proto_init(gap, bitdiv * 11u * 16u);
+    if (timeout_manual) proto_set_timeout(timeout_manual_cycles);
     tick_period = gap / 2u;
 #ifdef DEMO_MODE
     converge = bitdiv * 11u * 24u;
@@ -327,7 +336,12 @@ static void scan_process(void)
         scan_close();
     if ((now - win_start) > bd * 11u * SCAN_WIN_CHARS) {
         if (scan_valid >= 2) scan_lock();
-        else { cand_idx = (cand_idx + 1u) % BAUD_NCANDS; scan_begin(); }
+        else if (scan_valid == 1 && (now - scan_first_valid) < SCAN_CONFIRM_CYCLES) {
+            /* 已有合法帧，等待稀疏流量的下一帧；超时仍继续扫描。 */
+        } else if (scan_flen != 0 && !scan_bad
+                   && (now - win_start) < bd * 11u * (SCAN_WIN_CHARS + SCAN_FMAX + 4u)) {
+            /* 不在观察窗边界切断正在接收的短帧；连续垃圾不能无限拖住。 */
+        } else { cand_idx = (cand_idx + 1u) % BAUD_NCANDS; scan_begin(); }
     }
 }
 
@@ -631,6 +645,8 @@ static void cmd_exec(void)
         /* 前缀 "timeout " 后接十进制周期数 */
         uint32_t v;
         if (parse_dec(cmd_buf + 8, &v)) {
+            timeout_manual = 1;
+            timeout_manual_cycles = v;
             proto_set_timeout(v);
             app_put_str("OK timeout=");
             app_put_dec(v);
