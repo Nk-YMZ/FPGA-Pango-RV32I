@@ -419,7 +419,7 @@ static void tc_unsupported(void)
 static void tc_interference(void)
 {
     begin_case("interference");
-    uint8_t bad[9], f[16];
+    uint8_t bad[9], f[16] = {0};
     memcpy(bad, RSP1, 9);
     bad[8] ^= 0xFF;
     feed_frame(bad, 9, 2000);               /* crc_err ×1 */
@@ -563,6 +563,30 @@ static void tc_misc(void)
     check_invariant();
 }
 
+static void tc_compact_and_crc_hint(void)
+{
+    begin_case("compact-report");
+    proto_set_compact_report(1);
+    feed_frame(REQ1, 8, 2000); close_frame();
+    feed_frame(RSP1, sizeof(RSP1), 2000); close_frame();
+    CHECK(out_has("RSP addr=01 nreg=2 resp="));
+    CHECK(!out_has(" data="));
+    CHECK(proto_stats()->requests == 1 && proto_stats()->responses == 1);
+    CHECK(proto_paired_rsp() == 1);
+    check_invariant();
+    proto_set_compact_report(0);
+
+    begin_case("untrusted-address-hint");
+    uint8_t damaged[sizeof(RSP1)];
+    memcpy(damaged, RSP1, sizeof(RSP1));
+    damaged[0] = 5; /* 地址也可能是损坏的字段，不能拿来建有效设备账。 */
+    feed_frame(damaged, sizeof(damaged), 2000); close_frame();
+    CHECK(out_has("FRAME crc_err raw_addr=05"));
+    CHECK(proto_stats()->crc_err == 1 && proto_stats()->responses == 0);
+    CHECK(proto_dev_count() == 0);
+    check_invariant();
+}
+
 int main(void)
 {
     tc_crc();
@@ -583,8 +607,9 @@ int main(void)
     tc_dev_ovf();
     tc_clear();
     tc_misc();
+    tc_compact_and_crc_hint();
     if (fails == 0)
-        printf("===== proto 宿主单元测试全部通过（18 个用例） =====\n");
+        printf("===== proto 宿主单元测试全部通过（含精简输出与未校验地址线索） =====\n");
     else
         printf("===== proto 宿主单元测试 FAIL（%d 项） =====\n", fails);
     return fails != 0;

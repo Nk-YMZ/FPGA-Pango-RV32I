@@ -1,0 +1,70 @@
+{
+  "version": "v007_extended_random",
+  "passed": true,
+  "generator": {
+    "transactions": 436,
+    "good": 374,
+    "bad": 36,
+    "missing": 26,
+    "injected": 62,
+    "duration_s": 16.109000000004016,
+    "errors": [],
+    "mix_seed": 20261028
+  },
+  "actions": {
+    "exception": 9,
+    "normal": 365,
+    "bad_crc": 9,
+    "wrong_addr": 9,
+    "truncated": 9,
+    "delay": 9,
+    "no_reply": 26
+  },
+  "pc_observations": {
+    "exception_response": 9,
+    "normal": 374,
+    "bad_crc": 9,
+    "address_mismatch": 9,
+    "incomplete_frame": 9,
+    "no_reply": 26
+  },
+  "board_categories": {
+    "设备异常应答": 9,
+    "校验错误": 9,
+    "回应地址不匹配": 9,
+    "帧格式错误": 9,
+    "请求超时": 35,
+    "设备离线": 25,
+    "超时后同址回应": 9,
+    "设备恢复": 22
+  },
+  "board_deltas": {
+    "stat": {
+      "frames": 846,
+      "req": 436,
+      "rsp": 383,
+      "exr": 9,
+      "crc": 9,
+      "len": 9,
+      "unsup": 0,
+      "ferr": 0,
+      "tout": 35,
+      "ovf": 0
+    },
+    "perf": {
+      "bytes": 103520,
+      "feed_cyc": 5195213,
+      "frames": 846,
+      "frame_cyc": 9461507,
+      "uart_wait": 196663860,
+      "ev_ovf": 0,
+      "tx_drop": 0
+    }
+  },
+  "expected_frames": 846,
+  "expected_bytes": 103520,
+  "normal_summary_windows": 2,
+  "normal_period_seen": true,
+  "board_log": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\logs\\random_extended_20261028_224526\\board\\20261028_224526_123043\\board_console.txt",
+  "traffic_log": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\logs\\random_extended_20261028_224526\\mixed\\20261028_224529_614679\\traffic.jsonl"
+}

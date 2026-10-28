@@ -1,0 +1,32 @@
+{
+  "version": "v013_console460",
+  "date": "2026-10-29",
+  "exe": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\总线监听演示台.exe",
+  "desktop_copy": "C:\\Users\\szy\\Desktop\\总线监听演示台.exe",
+  "sha256": "00b97c0e38bf9b26eeaa59d9ce718559c476cb65b23610ed0278390d3b813c92",
+  "previous_archive": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\versions\\v012_warm_surfaces",
+  "ui_check": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\UI_V13_CHECK.json",
+  "source_sha256": {
+    "bus_console.py": "1484fd4050e1a41ef0777e4ff43779653e2855e68602037965b35a45b56a3b90",
+    "bus_console_launcher.py": "47b2926d0002f9e902596df05b93701efdd502ec70c887fe94bde79efdae3e89",
+    "bus_session.py": "1150ceacc05af0519f47b34107ec2933f4ceaed7171b17de206c42a7a8c49f6a",
+    "console_style.py": "e662e5ef3016b5ff0f3493d3fb0c5843917cc6c00489730951189356b42cb283",
+    "diagnostic_index.py": "659b0c1a3d00688044cdd0d97fa413534927fbe88156913e4abaa6ed9589ff47",
+    "mbus.py": "f66f5341d6dcaa13758c89f6f5576b1c48ab92bc23bf219ddb47488fa668e778",
+    "summary_live.py": "f0ce87b98bb3830c2cfb5aa5135075fd7df6b0c65faa2f4319e416c47b79df5c",
+    "fault_mix.py": "0e5afe9a248f4ff166a8011095c1ffcb07deac63aeeb24da60a5e5c2bac4a683",
+    "terminal_zh.py": "1cd8d6edaf2113096de5c427c1432eda817a7b3e854fbbd8cc30af6462128aca"
+  },
+  "notes": [
+    "结果口默认460800，显示跟随实际连接波特率；可用--console-baud 115200配合旧工程",
+    "外观、CPU、固件、监听采样和总线发生参数不变",
+    "原115200版本已完整存档"
+  ],
+  "language": "zh-CN",
+  "based_on": "v007_extended_random",
+  "background": "#f4f2ed",
+  "event_font_size": 11,
+  "log_font_size": 10,
+  "surface": "#faf8f3",
+  "console_baud": 460800
+}

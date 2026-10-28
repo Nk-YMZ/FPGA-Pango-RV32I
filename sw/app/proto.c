@@ -5,6 +5,12 @@ void app_put_str(const char *s);
 void app_put_hex(uint32_t v, int digits);
 void app_put_dec(uint32_t v);
 
+/* 板上可限制正常回复的数据预览，避免显示串口阻塞采集；0 保留完整输出。
+ * 仅控制显示，整帧校验、配对、统计和故障诊断仍处理全部字节。 */
+#ifndef APP_RSP_PREVIEW_REGS
+#define APP_RSP_PREVIEW_REGS 0
+#endif
+
 /* Modbus RTU 帧最长 256 字节；超长按格式异常计并丢弃余下字节（不越界） */
 #define MAX_FRAME 256
 
@@ -15,6 +21,10 @@ static uint32_t first_ts, last_ts;      /* 当前帧首/末字节时间戳 */
 static uint32_t gap_thresh;
 static uint32_t timeout_thresh;         /* 待回复超时阈值（clk） */
 static proto_stats_t st;
+static int compact_report;
+
+void proto_set_compact_report(int compact) { compact_report = compact != 0; }
+int proto_compact_report(void) { return compact_report; }
 
 /* 待回复请求（demo 场景单控制器单请求，一个槽位即可） */
 static int      pend_valid;
@@ -127,7 +137,12 @@ static void process_frame(void)
         uint16_t c = proto_crc16(buf, flen - 2);
         if (buf[flen - 2] != (uint8_t)(c & 0xFF) || buf[flen - 1] != (uint8_t)(c >> 8)) {
             st.crc_err++;
-            app_put_str("FRAME crc_err\n");
+            /* CRC未通过，帧头只作未校验线索，不建账、不确认设备身份。 */
+            app_put_str("FRAME crc_err raw_addr=");
+            app_put_hex(buf[0], 2);
+            app_put_str(" fc="); app_put_hex(buf[1], 2);
+            app_put_str(" len="); app_put_dec(flen);
+            app_put_str("\n");
             app_log_event(f_last, EV_CRC_ERR, 0, flen);
             /* 链路干扰：连续 CRC 错误达阈才上报（单帧抖动不报）；上报
                仅在达阈这一帧（burst 继续扩大不重复报）。len_err 帧不
@@ -255,6 +270,10 @@ static void process_frame(void)
         }
     } else if (flen >= 5 && flen == 5u + buf[2]) {  /* FC03 正常回复 */
         uint32_t i;
+        uint32_t shown = buf[2];
+#if APP_RSP_PREVIEW_REGS > 0
+        if (shown > 2u * APP_RSP_PREVIEW_REGS) shown = 2u * APP_RSP_PREVIEW_REGS;
+#endif
         st.responses++;
         proto_dev_t *d = addr ? dev_lookup(addr, 1) : 0;   /* addr=0 不建账，同上 */
         int rec = 0;
@@ -264,10 +283,19 @@ static void process_frame(void)
         }
         app_put_str("RSP addr=");
         app_put_hex(addr, 2);
-        app_put_str(" data=");
-        for (i = 0; i + 1 < buf[2]; i += 2) {
-            app_put_hex(((uint32_t)buf[3 + i] << 8) | buf[4 + i], 4);
-            if (i + 2 < buf[2]) app_put_str(",");
+        if (compact_report) {
+            app_put_str(" nreg=");
+            app_put_dec(buf[2] / 2u);
+        } else {
+            app_put_str(" data=");
+            for (i = 0; i + 1 < shown; i += 2) {
+                app_put_hex(((uint32_t)buf[3 + i] << 8) | buf[4 + i], 4);
+                if (i + 2 < shown) app_put_str(",");
+            }
+            if (shown < buf[2]) {
+            app_put_str(",... nreg=");
+            app_put_dec(buf[2] / 2u);
+            }
         }
         if (pend_valid && pend_addr == addr) {      /* 与待回复请求配对 */
             st.resp_cycles = f_first - pend_end_ts;

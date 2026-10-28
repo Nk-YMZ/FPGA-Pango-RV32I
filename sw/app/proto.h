@@ -35,6 +35,10 @@ typedef struct {
  * 分类不变式：frames == requests+responses+exc_rsp+crc_err+len_err+unsupported */
 void proto_init(uint32_t gap_thresh, uint32_t timeout_thresh);
 
+/* 仅控制正常回应的文本预览；整帧处理和全部诊断保持不变。 */
+void proto_set_compact_report(int compact);
+int proto_compact_report(void);
+
 /* 喂入一条记录：ts 为接收完成时刻时间戳，flags bit0=frame_err */
 void proto_feed(uint32_t ts, uint8_t data, uint8_t flags);
 

@@ -36,6 +36,7 @@
 #define UART_DATA   (*(volatile uint32_t *)0x10001000u)
 #define UART_STATUS (*(volatile uint32_t *)0x10001004u)
 #define CCTR_LO     (*(volatile uint32_t *)0x10002000u)  /* 周期计数器低 32 位 */
+#define CCTR_HI     (*(volatile uint32_t *)0x10002004u)  /* 读 LO 时锁存的高位 */
 
 #define MTIME_LO    (*(volatile uint32_t *)0x10003000u)
 #define MTIME_HI    (*(volatile uint32_t *)0x10003004u)
@@ -54,14 +55,61 @@
 #define MIE_MTIE    (1u << 7)
 #define MIE_MEIE    (1u << 11)
 
-static uint32_t uart_wait_cyc;      /* UART 打印阻塞累计（clk），性能测量用 */
+static uint64_t uart_wait_cyc;      /* 长时间观察时也保留完整的打印等待累计 */
+
+#if defined(APP_CHUNKED_TX) && !defined(DEMO_MODE)
+#define CHUNKED_TX
+/* 输出按整行入队，主循环每次只尝试发送16字符；FIFO满立即返回处理接收。
+ * 先收齐一行再入队，避免摘要与正常帧输出在半行处交错。 */
+#define TX_SIZE 1024u
+#define TX_LINE 256u
+static char tx_ring[TX_SIZE], tx_line[TX_LINE];
+static uint32_t tx_head, tx_tail, tx_len, tx_line_long, tx_drop_lines;
+static uint32_t tx_waiting, tx_wait_start;
+
+static uint32_t tx_free(void)
+{
+    return (tx_tail - tx_head - 1u) & (TX_SIZE - 1u);
+}
+
+static void tx_service(void)
+{
+    for (uint32_t n = 0; n < 16u && tx_tail != tx_head; n++) {
+        if (UART_STATUS & 1u) {
+            if (!tx_waiting) { tx_wait_start = CCTR_LO; tx_waiting = 1; }
+            return;
+        }
+        if (tx_waiting) {
+            uart_wait_cyc += (uint32_t)(CCTR_LO - tx_wait_start);
+            tx_waiting = 0;
+        }
+        UART_DATA = (uint32_t)tx_ring[tx_tail];
+        tx_tail = (tx_tail + 1u) & (TX_SIZE - 1u);
+    }
+}
+#endif
 
 static void uart_putc(char c)
 {
+#ifdef CHUNKED_TX
+    if (tx_len < TX_LINE) tx_line[tx_len++] = c;
+    else tx_line_long = 1;
+    if (c != '\n') return;
+    if (tx_line_long || tx_free() < tx_len) {
+        tx_drop_lines++;             /* 显示队列满丢整行并计数，不阻塞总线采集 */
+    } else {
+        for (uint32_t i = 0; i < tx_len; i++) {
+            tx_ring[tx_head] = tx_line[i];
+            tx_head = (tx_head + 1u) & (TX_SIZE - 1u);
+        }
+    }
+    tx_len = tx_line_long = 0;
+#else
     uint32_t c0 = CCTR_LO;
     while (UART_STATUS & 0x1u) ;    // 等待 TX FIFO 有空间
     uart_wait_cyc += CCTR_LO - c0;
     UART_DATA = (uint32_t)c;
+#endif
 }
 
 /* ---- proto 输出钩子 ---- */
@@ -130,6 +178,7 @@ static volatile uint32_t tick_flag;             /* MTI 节拍待处理标志 */
 static uint32_t tick_period;                    /* MTI 静默收尾节拍（clk） */
 static uint32_t perf_feed_n, perf_feed_cyc;     /* 逐字节采集开销 */
 static uint32_t perf_frame_cyc, perf_frame_max; /* 帧处理累计/最差（含打印） */
+static void summary_reset(void);
 
 /* MEI：弹空 uart_mon FIFO 搬入事件缓冲。电平中断，弹空即自撤销；
  * 取数期间新到的字节在 mret 后再次触发，不会丢 */
@@ -233,7 +282,20 @@ static void tick_process(void)
 #define SCAN_WIN_CHARS  48u     /* 每候选观察窗（字符时间） */
 #define SCAN_FMAX       32u     /* 扫描验证器帧缓冲上限（超长帧判无效） */
 #define SCAN_CONFIRM_CYCLES (MON_FCLK * 2u) /* 首帧有效后等待下一帧的有界时间 */
+#ifndef MON_SCAN_MIN_MS
+#define MON_SCAN_MIN_MS 0u
+#endif
 static const uint16_t baud_cands[] = {
+#ifdef MON_FAST_BAUD
+    /* 板上高速压力档；普通构建保留原候选表与原扫描顺序。 */
+#if !defined(MON_FAST_BAUD_MAX) || MON_FAST_BAUD_MAX >= 921600
+    MON_FCLK / 921600u,
+#endif
+#if !defined(MON_FAST_BAUD_MAX) || MON_FAST_BAUD_MAX >= 460800
+    MON_FCLK / 460800u,
+#endif
+    MON_FCLK / 230400u,
+#endif
     MON_FCLK / 115200u, MON_FCLK / 57600u, MON_FCLK / 38400u,
     MON_FCLK / 19200u,  MON_FCLK / 9600u,
 };
@@ -255,6 +317,9 @@ static uint32_t scan_first_valid;   /* 首帧有效证据的本候选时间戳 *
 static int      scan_bad;           /* 当前扫描帧超长或带串口帧错误 */
 static int      timeout_manual;     /* 手动超时按真实时钟周期保存，重锁不覆盖 */
 static uint32_t timeout_manual_cycles;
+#ifdef MON_RX_DIAG
+static int rx_fixed;               /* 定速诊断用于区分接收错误与扫描未锁定 */
+#endif
 
 /* 扫描帧关闭：CRC 通过且无帧错误、长度合法才算有效帧 */
 static void scan_close(void)
@@ -314,6 +379,9 @@ static void scan_lock(void)
     valid_prev = 0;
     invalid_prev = 0;
     feed_n_at_valid = perf_feed_n;
+#ifndef DEMO_MODE
+    summary_reset();               /* 自动重锁会清协议统计，摘要同步换窗口 */
+#endif
     app_put_str("AUTOBAUD lock bitdiv=");
     app_put_dec(bitdiv);
     app_put_str("\n");
@@ -334,12 +402,16 @@ static void scan_process(void)
     uint32_t now = MON_NOW;
     if (scan_flen != 0 && (now - scan_last_ts) > bd * 11u * 7u / 2u)
         scan_close();
-    if ((now - win_start) > bd * 11u * SCAN_WIN_CHARS) {
+    uint32_t window = bd * 11u * SCAN_WIN_CHARS;
+    /* 高速档按字符数计算的窗口可能短于帧间静默，给USB/轮询留实际观察时间。 */
+    if (window < (MON_FCLK / 1000u) * MON_SCAN_MIN_MS)
+        window = (MON_FCLK / 1000u) * MON_SCAN_MIN_MS;
+    if ((now - win_start) > window) {
         if (scan_valid >= 2) scan_lock();
         else if (scan_valid == 1 && (now - scan_first_valid) < SCAN_CONFIRM_CYCLES) {
             /* 已有合法帧，等待稀疏流量的下一帧；超时仍继续扫描。 */
         } else if (scan_flen != 0 && !scan_bad
-                   && (now - win_start) < bd * 11u * (SCAN_WIN_CHARS + SCAN_FMAX + 4u)) {
+                   && (now - win_start) < window + bd * 11u * (SCAN_FMAX + 4u)) {
             /* 不在观察窗边界切断正在接收的短帧；连续垃圾不能无限拖住。 */
         } else { cand_idx = (cand_idx + 1u) % BAUD_NCANDS; scan_begin(); }
     }
@@ -351,6 +423,9 @@ static void scan_process(void)
    即触发扫描 */
 static void baud_detect(void)
 {
+#ifdef MON_RX_DIAG
+    if (rx_fixed) return;
+#endif
     const proto_stats_t *s = proto_stats();
     uint32_t valid = s->requests + s->responses + s->exc_rsp + s->unsupported;
     uint32_t invalid = s->crc_err + s->len_err;
@@ -487,8 +562,19 @@ static void print_dev_line(const proto_dev_t *d)
     app_put_str("\n");
 }
 
+#ifdef CHUNKED_TX
+/* 长查询每轮只生成一行；先做快照，后续接收更新不会改变同一份回复。 */
+static uint32_t reply_kind, reply_index, reply_count, reply_total, reply_header;
+static proto_dev_t reply_devs[PROTO_MAX_DEV];
+#endif
+
 static void print_devs(void)
 {
+#ifdef CHUNKED_TX
+    reply_kind = 1; reply_index = reply_header = 0;
+    reply_count = proto_dev_count(); reply_total = proto_dev_ovf();
+    for (uint32_t i = 0; i < reply_count; i++) reply_devs[i] = *proto_dev(i);
+#else
     app_put_str("DEVS n=");
     app_put_dec(proto_dev_count());
     app_put_str(" ovf=");
@@ -496,6 +582,7 @@ static void print_devs(void)
     app_put_str("\n");
     for (uint32_t i = 0; i < proto_dev_count(); i++)
         print_dev_line(proto_dev(i));
+#endif
 }
 
 /* 性能测量输出（PERF 行不进 golden 门禁：性能数字是评估而非正确性判定，
@@ -520,6 +607,81 @@ static void print_perf(void)
     app_put_dec(uart_wait_cyc);
     app_put_str(" ev_ovf=");
     app_put_dec(ev_ovf);
+#ifdef CHUNKED_TX
+    app_put_str(" tx_drop=");
+    app_put_dec(tx_drop_lines);
+#endif
+    app_put_str("\n");
+}
+
+/* 摘要只在查询时计算，取相邻两次查询之间的增量；clear/重锁重新起算。
+ * 使用现有计数，不在收字节、解析帧的路径上加入周期性打印。 */
+typedef struct {
+    uint64_t at, wait;
+    uint32_t bytes, frames, pairs, bad, tout, hw_lost, sw_lost;
+} summary_sample_t;
+static summary_sample_t summary_prev;
+
+static summary_sample_t summary_sample(void)
+{
+    uint32_t saved, lo, hi;
+    const proto_stats_t *s = proto_stats();
+    /* 中断中的计时也会读 LO，短暂屏蔽中断保护 LO/HI 配对。 */
+    __asm__ volatile("csrrc %0, mstatus, %1" : "=r"(saved) : "r"(MSTATUS_MIE) : "memory");
+    lo = CCTR_LO;
+    hi = CCTR_HI;
+    if (saved & MSTATUS_MIE)
+        __asm__ volatile("csrs mstatus, %0" :: "r"(MSTATUS_MIE) : "memory");
+    return (summary_sample_t){
+        .at = ((uint64_t)hi << 32) | lo, .wait = uart_wait_cyc,
+        .bytes = perf_feed_n, .frames = s->frames, .pairs = proto_paired_rsp(),
+        .bad = s->crc_err + s->len_err, .tout = s->timeouts,
+        .hw_lost = MON_OVF, .sw_lost = ev_ovf
+    };
+}
+
+static void summary_reset(void)
+{
+    summary_prev = summary_sample();
+}
+
+static void print_percent(uint32_t hundredths)
+{
+    app_put_dec(hundredths / 100u);
+    app_put_str(".");
+    if (hundredths % 100u < 10u) app_put_str("0");
+    app_put_dec(hundredths % 100u);
+    app_put_str("%");
+}
+
+static void print_summary(void)
+{
+    summary_sample_t n = summary_sample(), p = summary_prev;
+    uint64_t dt = n.at - p.at;
+    uint32_t frames = n.frames - p.frames;
+    if (dt == 0) dt = 1;
+    /* 先存快照，本次输出造成的等待计入下一个窗口。wait 不是CPU总占用率。 */
+    summary_prev = n;
+    app_put_str("SUM ms=");
+    app_put_dec((uint32_t)(dt / (MON_FCLK / 1000u)));
+    app_put_str(" Bps=");
+    app_put_dec((uint32_t)((uint64_t)(n.bytes - p.bytes) * MON_FCLK / dt));
+    app_put_str(" fps=");
+    app_put_dec((uint32_t)((uint64_t)frames * MON_FCLK / dt));
+    app_put_str(" pairs_s=");
+    app_put_dec((uint32_t)((uint64_t)(n.pairs - p.pairs) * MON_FCLK / dt));
+    app_put_str(" err=");
+    print_percent(frames ? (uint32_t)((uint64_t)(n.bad - p.bad) * 10000u / frames) : 0);
+    app_put_str(" tout=");
+    app_put_dec(n.tout - p.tout);
+    app_put_str(" lost=");
+    app_put_dec((n.hw_lost - p.hw_lost) + (n.sw_lost - p.sw_lost));
+    app_put_str(" wait=");
+    print_percent((uint32_t)((n.wait - p.wait) * 10000u / dt));
+#ifdef CHUNKED_TX
+    app_put_str(" tx_drop=");
+    app_put_dec(tx_drop_lines);
+#endif
     app_put_str("\n");
 }
 
@@ -560,8 +722,15 @@ void app_log_event(uint32_t ts, uint8_t type, uint8_t addr, uint32_t aux)
         GPIO_OUT = GPIO_OUT | GPIO_ALARM;   /* 故障锁存（OUT 寄存器可读） */
 }
 
+#ifdef CHUNKED_TX
+static void log_reply_begin(void);
+#endif
+
 static void print_log(void)
 {
+#ifdef CHUNKED_TX
+    log_reply_begin();
+#else
     uint32_t used = log_total < LOG_SIZE ? log_total : LOG_SIZE;
     app_put_str("LOG n=");
     app_put_dec(used);
@@ -584,7 +753,44 @@ static void print_log(void)
         app_put_dec(e->aux);
         app_put_str("\n");
     }
+#endif
 }
+
+#ifdef CHUNKED_TX
+static log_ent_t reply_log[LOG_SIZE];
+static void log_reply_begin(void)
+{
+    reply_kind = 2; reply_index = reply_header = 0;
+    reply_count = log_total < LOG_SIZE ? log_total : LOG_SIZE;
+    reply_total = log_total;
+    for (uint32_t i = 0; i < reply_count; i++)
+        reply_log[i] = log_ring[(log_total - reply_count + i) % LOG_SIZE];
+}
+
+static void reply_service(void)
+{
+    if (!reply_kind || tx_free() < TX_LINE) return;
+    if (!reply_header) {
+        app_put_str(reply_kind == 1 ? "DEVS n=" : "LOG n=");
+        app_put_dec(reply_count);
+        app_put_str(reply_kind == 1 ? " ovf=" : " drop=");
+        app_put_dec(reply_kind == 1 ? reply_total : reply_total - reply_count);
+        app_put_str("\n");
+        reply_header = 1;
+    } else if (reply_index < reply_count) {
+        if (reply_kind == 1) print_dev_line(&reply_devs[reply_index]);
+        else {
+            const log_ent_t *e = &reply_log[reply_index];
+            app_put_str("LOG #"); app_put_dec(reply_total - reply_count + reply_index + 1u);
+            app_put_str(" ts="); app_put_dec(e->ts);
+            app_put_str(" "); app_put_str(log_names[e->type & 7u]);
+            if (e->type >= EV_TIMEOUT) { app_put_str(" addr="); app_put_hex(e->addr, 2); }
+            app_put_str(" aux="); app_put_dec(e->aux); app_put_str("\n");
+        }
+        reply_index++;
+    } else reply_kind = 0;
+}
+#endif
 
 /* ---- 命令接口（连续运行形态）：PC 经结果 UART 下行整行命令 ----
  * nostdlib 环境无 string.h，字符串比较与十进制解析就地实现。
@@ -630,12 +836,18 @@ static void cmd_exec(void)
            事件日志保留可追溯（清空用 logclear） */
         perf_feed_n = perf_feed_cyc = perf_frame_cyc = perf_frame_max = 0;
         uart_wait_cyc = 0;
+#ifdef CHUNKED_TX
+        tx_waiting = 0;             /* 本窗口的发送等待重新起算，显示丢行累计保留 */
+#endif
         /* 误配检测基准同步重置：perf_feed_n 已清零而 feed_n_at_valid 保留
            旧值时减法下溢会立即误触发扫描（扫描锁定后 clear 可达） */
         valid_prev = 0;
         invalid_prev = 0;
         feed_n_at_valid = perf_feed_n;
         GPIO_OUT = GPIO_OUT & ~GPIO_ALARM;
+#ifndef DEMO_MODE
+        summary_reset();
+#endif
         app_put_str("OK clear\n");
     } else if (streq(cmd_buf, "timeout")) {
         app_put_str("timeout=");
@@ -661,6 +873,25 @@ static void cmd_exec(void)
         app_put_str("bitdiv=");
         app_put_dec(MON_BITDIV);
         app_put_str("\n");
+#ifdef MON_RX_DIAG
+    } else if (starts_with(cmd_buf, "rxfix ")) {
+        uint32_t v;
+        if (parse_dec(cmd_buf + 6, &v) && v >= 16u && v <= 65535u) {
+            uint32_t tout = proto_get_timeout();
+            rx_fixed = 1; scanning = 0;
+            MON_CTRL = 0; MON_BITDIV = v; MON_CTRL = 4u; MON_CTRL = 3u;
+            ev_tail = ev_head;
+            bitdiv = v;
+            uint32_t gap = v * 11u * 7u / 2u;
+            proto_init(gap, tout); tick_period = gap / 2u;
+            valid_prev = invalid_prev = 0; feed_n_at_valid = perf_feed_n;
+            summary_reset();
+            app_put_str("OK rxfix="); app_put_dec(v); app_put_str("\n");
+        } else app_put_str("ERR bad-arg\n");
+    } else if (streq(cmd_buf, "rxauto")) {
+        rx_fixed = 0; scanning = 1; cand_idx = 0; scan_begin();
+        app_put_str("OK rxauto\n");
+#endif
     } else if (streq(cmd_buf, "log")) {
         print_log();
     } else if (streq(cmd_buf, "logclear")) {
@@ -675,9 +906,22 @@ static void cmd_exec(void)
         GPIO_OUT = GPIO_OUT & ~GPIO_ALARM;
         app_put_str("OK alarm=0\n");
     } else if (streq(cmd_buf, "help")) {
-        app_put_str("cmds: stat | dev | clear | timeout [clk] | bitdiv | perf | log | logclear | alarm [off] | help\n");
+        app_put_str("cmds: stat | dev | clear | timeout [clk] | bitdiv | perf | summary [reset] | report [full|compact] | log | logclear | alarm [off] | help\n");
     } else if (streq(cmd_buf, "perf")) {
         print_perf();
+    } else if (streq(cmd_buf, "summary")) {
+        print_summary();
+    } else if (streq(cmd_buf, "summary reset")) {
+        summary_reset();
+        app_put_str("OK summary reset\n");
+    } else if (streq(cmd_buf, "report")) {
+        app_put_str(proto_compact_report() ? "report=compact\n" : "report=full\n");
+    } else if (streq(cmd_buf, "report compact")) {
+        proto_set_compact_report(1);
+        app_put_str("OK report=compact\n");
+    } else if (streq(cmd_buf, "report full")) {
+        proto_set_compact_report(0);
+        app_put_str("OK report=full\n");
     } else {
         app_put_str("ERR unknown\n");
     }
@@ -699,6 +943,9 @@ static void cmd_feed(char c)
 static void cmdq_process(void)
 {
     while (cmdq_tail != cmdq_head) {
+#ifdef CHUNKED_TX
+        if (reply_kind || tx_free() < TX_LINE) return;
+#endif
         char c = cmdq[cmdq_tail];
         cmdq_tail = (cmdq_tail + 1u) & (CMDQ_SIZE - 1u);
         cmd_feed(c);
@@ -725,6 +972,12 @@ int main(void)
     uint32_t gap    = bitdiv * 11u * 7u / 2u;   /* 3.5 字符 × 11 位 × 位周期 */
     uint32_t tout   = bitdiv * 11u * 16u;       /* 待回复超时：16 字符 */
     proto_init(gap, tout);
+#ifndef DEMO_MODE
+    /* 连续应用的回应时限独立于线速；高速RTU仍有毫秒级静默和设备处理时间。 */
+    timeout_manual = 1;
+    timeout_manual_cycles = MON_FCLK / 10u;
+    proto_set_timeout(timeout_manual_cycles);
+#endif
     tick_period = gap / 2u;         /* 静默收尾节拍：额外延迟 < 半切帧阈值 */
 
 #ifdef DEMO_MODE
@@ -739,6 +992,9 @@ int main(void)
     mtimer_next_tick();
     __asm__ volatile("csrw mie, %0" :: "r"(MIE_MEIE | MIE_MTIE));
     __asm__ volatile("csrs mstatus, %0" :: "r"(MSTATUS_MIE));
+#ifndef DEMO_MODE
+    summary_reset();
+#endif
 
     /* 主循环（两种形态同一骨架）：排空事件缓冲喂 proto → 队列追平后
        执行待处理节拍 →（连续形态）排空命令缓冲；无活可干时 WFI 真睡眠。
@@ -763,6 +1019,10 @@ int main(void)
 #ifndef DEMO_MODE
         cmdq_process();
 #endif
+#ifdef CHUNKED_TX
+        reply_service();
+        tx_service();
+#endif
 #ifdef DEMO_MODE
         if (!scanning && ev_tail == ev_head && proto_stats()->frames >= 1
             && !proto_pending() && !(MON_STATUS & 0x1u)
@@ -770,7 +1030,11 @@ int main(void)
             break;
 #endif
         __asm__ volatile("csrc mstatus, %0" :: "r"(MSTATUS_MIE));
-        if (ev_tail == ev_head && !tick_flag && cmdq_tail == cmdq_head)
+        if (ev_tail == ev_head && !tick_flag && cmdq_tail == cmdq_head
+#ifdef CHUNKED_TX
+            && tx_head == tx_tail && !reply_kind
+#endif
+            )
             __asm__ volatile("wfi");
         __asm__ volatile("csrs mstatus, %0" :: "r"(MSTATUS_MIE));
     }

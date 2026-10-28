@@ -1,0 +1,31 @@
+{
+  "version": "console460-v1",
+  "date": "2026-10-29",
+  "project": "D:\\1014\\doublefixed\\project1020_mes50hp_app80_console460\\project1020_mes50hp_app80_console460.pds",
+  "bitstream": "D:\\1014\\doublefixed\\project1020_mes50hp_app80_console460\\generate_bitstream\\mes50hp_app80_top.sbit",
+  "firmware_hex": "D:\\1014\\doublefixed\\project1020_mes50hp_app80_console460\\firmware\\app_mon_80m.hex",
+  "bitstream_sha256": "23df20806aba40e783268fe52f4c6f0e9dbe8a483452da42a4e706a5bf74fda3",
+  "firmware_sha256": "bddd174bc7937bd4c5f36d087f247467dab69b0024d9deb07915fa18573f787d",
+  "cpu_mhz": 80,
+  "preview_registers": 4,
+  "hardware_downloaded": true,
+  "previous_release_manifest": "D:\\repo_main\\pds_board\\MES50HP_app80\\console460\\PREVIOUS_RELEASE.json",
+  "max_validated_baud": 921600,
+  "default_timeout_ms": 100,
+  "hardware_test": "D:\\repo_main\\pds_board\\MES50HP_app80\\console460\\RESULT_460800.json",
+  "report": "D:\\repo_main\\pds_board\\MES50HP_app80\\console460\\升级结果与应用取舍.md",
+  "output_modes": [
+    "full",
+    "compact"
+  ],
+  "default_output": "full",
+  "current_output": "compact",
+  "core_and_sampling_unchanged": true,
+  "live_panel_version": "v013_console460",
+  "live_panel_executable": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\总线监听演示台.exe",
+  "live_panel_desktop_copy": "C:\\Users\\szy\\Desktop\\总线监听演示台.exe",
+  "live_panel_ui_test": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\UI_V13_CHECK.json",
+  "live_panel_archive": "D:\\repo_main\\pds_board\\MES50HP_app80\\live_summary\\versions\\v012_warm_surfaces",
+  "console_baud": 460800,
+  "actual_console_baud": 459770.1149425287
+}

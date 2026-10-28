@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "baud": 230400,
+  "addresses": 8,
+  "registers_per_reply": 125,
+  "transactions": 320,
+  "traffic": {
+    "pc_correct": 320,
+    "pc_bad": 0,
+    "pc_missing": 0,
+    "duration_s": 6.218999999999141
+  },
+  "stats": {
+    "frames": 640,
+    "req": 320,
+    "rsp": 320,
+    "exr": 0,
+    "crc": 0,
+    "len": 0,
+    "unsup": 0,
+    "ferr": 0,
+    "tout": 0,
+    "resp": 324756,
+    "ovf": 0
+  },
+  "perf": {
+    "bytes": 84160,
+    "feed_cyc": 4064105,
+    "frames": 640,
+    "frame_cyc": 7699807,
+    "frame_max": 22431,
+    "uart_wait": 210509453,
+    "ev_ovf": 0,
+    "tx_drop": 0
+  },
+  "devices": "DEVS n=8 ovf=0\nDEV addr=01 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=318609 rmin=299753 rmax=373833\nDEV addr=02 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=321369 rmin=289585 rmax=375253\nDEV addr=03 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=311650 rmin=299993 rmax=353589\nDEV addr=04 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=319610 rmin=289528 rmax=353601\nDEV addr=05 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=325837 rmin=297011 rmax=370393\nDEV addr=06 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=340034 rmin=293826 rmax=363473\nDEV addr=07 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=347994 rmin=296398 rmax=354735\nDEV addr=08 req=40 rsp=40 exr=0 tout=0 rn=40 rlast=324756 rmin=295024 rmax=371174\n",
+  "summary_queries_during_traffic": [
+    {
+      "ms": 1030.0,
+      "Bps": 9701.0,
+      "fps": 72.0,
+      "pairs_s": 35.0,
+      "err_pct": 0.0,
+      "tout": 0.0,
+      "lost": 0.0,
+      "wait_pct": 28.83,
+      "tx_drop": 0.0
+    },
+    {
+      "ms": 3161.0,
+      "Bps": 13557.0,
+      "fps": 103.0,
+      "pairs_s": 51.0,
+      "err_pct": 0.0,
+      "tout": 0.0,
+      "lost": 0.0,
+      "wait_pct": 43.29,
+      "tx_drop": 0.0
+    }
+  ],
+  "live_replies": {
+    "summary": [
+      "RSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=322683cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=346241cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=346575cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=321257cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=315004cyc\nREQ addr=06 start=0000 nreg=125\nSUM ms=1030 Bps=9701 fps=72 pairs_s=35 err=0.00% tout=0 lost=0 wait=28.83% tx_drop=0\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=307365cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=320177cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=327790cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=305246cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=375253cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=327750cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=314218cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=322871cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=353709cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=354735cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=311392cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=306525cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=322457cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=334923cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=321737cyc\nREQ addr=05 start=0000 nreg=125\n",
+      "RSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=319477cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=351702cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=306625cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=321517cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=317690cyc\nREQ addr=01 start=0000 nreg=125\nSUM ms=3161 Bps=13557 fps=103 pairs_s=51 err=0.00% tout=0 lost=0 wait=43.29% tx_drop=0\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=373833cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=314545cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=331516cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=345368cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=358874cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=329742cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=349834cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=316544cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=328316cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=326223cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=339035cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=332436cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=331383cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=300172cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=351808cyc\nREQ addr=08 start=0000 nreg=125\n"
+    ],
+    "dev": [
+      "RSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=348656cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=371174cyc\nREQ addr=01 start=0000 nreg=125\nDEVS n=8 ovf=0\nDEV addr=01 req=12 rsp=11 exr=0 tout=0 rn=11 rlast=300553 rmin=300553 rmax=344951\nDEV addr=02 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=316139 rmin=316139 rmax=375253\nDEV addr=03 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=314393 rmin=299993 rmax=346575\nDEV addr=04 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=316112 rmin=289528 rmax=353601\nDEV addr=05 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=340711 rmin=298793 rmax=351563\nDEV addr=06 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=323365 rmin=296700 rmax=357842\nDEV addr=07 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=348656 rmin=304393 rmax=354735\nDEV addr=08 req=11 rsp=11 exr=0 tout=0 rn=11 rlast=371174 rmin=305527 rmax=371174\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=299753cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=321925cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=344443cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=322938cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=321885cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=348909cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=317005cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=350616cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=344016cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=329096cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=321457cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=323871cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=306873cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=302700cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=342550cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=331444cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=342523cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=313046cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=353589cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=344909cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=309192cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=326857cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=315058cyc\nREQ addr=08 start=0000 nreg=125\n"
+    ],
+    "log": [
+      "RSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=310100cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=323606cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=331219cyc\nREQ addr=04 start=0000 nreg=125\nLOG n=2 drop=0\nLOG #1 ts=128250383 crc_err aux=255\nLOG #2 ts=135026902 timeout addr=01 aux=1\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=317686cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=324606cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=322859cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=348498cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=298568cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=327326cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=307554cyc\nREQ addr=03 start=0000 nreg=125\nRSP addr=03 data=0130,0131,0132,0133,... nreg=125 resp=346019cyc\nREQ addr=04 start=0000 nreg=125\nRSP addr=04 data=0140,0141,0142,0143,... nreg=125 resp=340459cyc\nREQ addr=05 start=0000 nreg=125\nRSP addr=05 data=0150,0151,0152,0153,... nreg=125 resp=303355cyc\nREQ addr=06 start=0000 nreg=125\nRSP addr=06 data=0160,0161,0162,0163,... nreg=125 resp=302649cyc\nREQ addr=07 start=0000 nreg=125\nRSP addr=07 data=0170,0171,0172,0173,... nreg=125 resp=344580cyc\nREQ addr=08 start=0000 nreg=125\nRSP addr=08 data=0180,0181,0182,0183,... nreg=125 resp=307475cyc\nREQ addr=01 start=0000 nreg=125\nRSP addr=01 data=0110,0111,0112,0113,... nreg=125 resp=309542cyc\nREQ addr=02 start=0000 nreg=125\nRSP addr=02 data=0120,0121,0122,0123,... nreg=125 resp=326168cyc\nREQ addr=03 start=0000 nreg=125\n"
+    ]
+  },
+  "seeded_fault_stats": {
+    "frames": 2,
+    "req": 1,
+    "rsp": 0,
+    "exr": 0,
+    "crc": 1,
+    "len": 0,
+    "unsup": 0,
+    "ferr": 0,
+    "tout": 1,
+    "resp": 0,
+    "ovf": 0
+  },
+  "extra_poll_interval_s": 0,
+  "rtu_silence_s": 0.002,
+  "cpu_rtl_changed": false,
+  "pll_changed": false,
+  "rx_sampling_changed": false,
+  "pc_ports_released_after_exit": true
+}
