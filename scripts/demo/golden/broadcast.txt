@@ -1,6 +1,0 @@
-app-demo: Modbus RTU 监听可行性 demo
-REQ addr=00 start=0000 nreg=2
-RSP addr=00 data=0100,0258
-STAT frames=2 req=1 rsp=1 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=0 ovf=0
-DEVS n=0 ovf=0
-RESULT: PASS

@@ -1,9 +1,0 @@
-app-demo: Modbus RTU 监听可行性 demo
-REQ addr=01 start=0000 nreg=30
-RSP addr=01 data=0000,0001,0002,0003,0004,0005,0006,0007,0008,0009,000a,000b,000c,000d,000e,000f,0010,0011,0012,0013,0014,0015,0016,0017,0018,0019,001a,001b,001c,001d resp=1728cyc
-REQ addr=01 start=0000 nreg=2
-RSP addr=01 data=0100,0258 resp=1728cyc
-STAT frames=4 req=2 rsp=2 exr=0 crc=0 len=0 unsup=0 ferr=0 tout=0 resp=1728 ovf=0
-DEVS n=1 ovf=0
-DEV addr=01 req=2 rsp=2 exr=0 tout=0 rn=2 rlast=1728 rmin=1728 rmax=1728
-RESULT: PASS

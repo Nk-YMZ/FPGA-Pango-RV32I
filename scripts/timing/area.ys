@@ -1,9 +1,0 @@
-# yosys 定性时序分析 —— 分层面积统计
-# 保持层次（不 flatten），按模块报告单元数，用于资源占用定性评估。
-# 仅做到 proc + memory -nomap 的粗粒度网表：单元为 $ 粗粒原语
-# （$add/$mux/$dff/$mem 等），数量为相对比较口径，非 LUT 数。
-read_verilog build/timing/soc_flat.v
-hierarchy -check -top soc_top
-proc
-memory -nomap
-stat
