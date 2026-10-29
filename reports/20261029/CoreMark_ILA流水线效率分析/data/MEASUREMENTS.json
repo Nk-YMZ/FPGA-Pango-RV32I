@@ -1,0 +1,116 @@
+{
+  "cm_list": {
+    "cycles": 4096,
+    "time_us": 51.2,
+    "counts": {
+      "execute_advance": 3764,
+      "forwarded": 1696,
+      "branch_fixes": 57,
+      "execute_redirects": 116,
+      "retired": 3764,
+      "mul_starts": 0,
+      "mul_completions": 0,
+      "invalid_bubble": 256,
+      "load_wait": 2,
+      "global_hold": 74,
+      "global_store_hold": 0,
+      "global_load_hold": 74
+    },
+    "ipc": 0.9189453125,
+    "cpi": 1.0882040382571732,
+    "ex_wb_sequence_verified": true,
+    "initial_inflight_retirements": 2,
+    "instruction_mix": {
+      "load": 202,
+      "store": 204,
+      "other": 2887,
+      "conditional_branch": 387,
+      "jump": 84
+    },
+    "functions": {
+      "crcu16": 2436,
+      "calc_func": 543,
+      "matrix_test": 293,
+      "core_list_mergesort": 254,
+      "cmp_complex": 135,
+      "core_bench_list": 92,
+      "core_bench_matrix": 11
+    },
+    "trigger_position": 128,
+    "trigger_instruction": "lw\ta5,0(a5)",
+    "trigger_pc": "0xc50"
+  },
+  "cm_matrix": {
+    "cycles": 4096,
+    "time_us": 51.2,
+    "counts": {
+      "execute_advance": 3237,
+      "forwarded": 494,
+      "branch_fixes": 47,
+      "execute_redirects": 49,
+      "retired": 3237,
+      "mul_starts": 380,
+      "mul_completions": 380,
+      "invalid_bubble": 99,
+      "muldiv_wait": 760
+    },
+    "ipc": 0.790283203125,
+    "cpi": 1.2653691689836268,
+    "ex_wb_sequence_verified": true,
+    "initial_inflight_retirements": 2,
+    "instruction_mix": {
+      "other": 1576,
+      "conditional_branch": 434,
+      "jump": 44,
+      "store": 43,
+      "load": 760,
+      "mul": 380
+    },
+    "functions": {
+      "matrix_mul_matrix": 3133,
+      "crc16": 97,
+      "matrix_test": 7
+    },
+    "trigger_position": 128,
+    "trigger_instruction": "lh\ta4,0(a5)",
+    "trigger_pc": "0x1574"
+  },
+  "cm_state": {
+    "cycles": 4096,
+    "time_us": 51.2,
+    "counts": {
+      "execute_advance": 3524,
+      "forwarded": 1493,
+      "branch_fixes": 95,
+      "execute_redirects": 184,
+      "retired": 3523,
+      "mul_starts": 0,
+      "mul_completions": 0,
+      "invalid_bubble": 387,
+      "global_hold": 75,
+      "global_store_hold": 0,
+      "global_load_hold": 75,
+      "load_wait": 110
+    },
+    "ipc": 0.860107421875,
+    "cpi": 1.1626454726085722,
+    "ex_wb_sequence_verified": true,
+    "initial_inflight_retirements": 1,
+    "instruction_mix": {
+      "other": 1748,
+      "jump": 123,
+      "store": 227,
+      "load": 522,
+      "conditional_branch": 904
+    },
+    "functions": {
+      "core_state_transition": 2895,
+      "core_bench_state": 595,
+      "calc_func": 29,
+      "cmp_complex": 5
+    },
+    "trigger_position": 128,
+    "trigger_instruction": "lw\ta3,0(a0)",
+    "trigger_pc": "0x1ca4"
+  }
+}

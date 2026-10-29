@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- Created with matplotlib (https://matplotlib.org/) -->
+<svg height="292.711681pt" version="1.1" viewBox="0 0 855.74 292.711681" width="855.74pt" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+ <defs>
+  <style type="text/css">
+*{stroke-linecap:butt;stroke-linejoin:round;}
+  </style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 292.711681 
+L 855.74 292.711681 
+L 855.74 0 
+L 0 0 
+z
+" style="fill:#ffffff;"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 80.2 219.95097 
+L 845.04 219.95097 
+L 845.04 36.99 
+L 80.2 36.99 
+z
+" style="fill:#ffffff;"/>
+   </g>
+   <g id="patch_3">
+    <path clip-path="url(#p36556f5e6d)" d="M 80.2 45.306408 
+L 271.830242 45.306408 
+L 271.830242 78.572039 
+L 80.2 78.572039 
+z
+" style="fill:#b05d48;"/>
+   </g>
+   <g id="patch_4">
+    <path clip-path="url(#p36556f5e6d)" d="M 271.830242 45.306408 
+L 470.184352 45.306408 
+L 470.184352 78.572039 
+L 271.830242 78.572039 
+z
+" style="fill:#9d855e;"/>
+   </g>
+   <g id="patch_5">
+    <path clip-path="url(#p36556f5e6d)" d="M 470.184352 45.306408 
+L 510.52756 45.306408 
+L 510.52756 78.572039 
+L 470.184352 78.572039 
+z
+" style="fill:#b4b6b1;"/>
+   </g>
+   <g id="patch_6">
+    <path clip-path="url(#p36556f5e6d)" d="M 80.2 111.83767 
+L 238.210901 111.83767 
+L 238.210901 145.1033 
+L 80.2 145.1033 
+z
+" style="fill:#b05d48;"/>
+   </g>
+   <g id="patch_7">
+    <path clip-path="url(#p36556f5e6d)" d="M 238.210901 111.83767 
+L 244.934769 111.83767 
+L 244.934769 145.1033 
+L 238.210901 145.1033 
+z
+" style="fill:#9d855e;"/>
+   </g>
+   <g id="patch_8">
+    <path clip-path="url(#p36556f5e6d)" d="M 244.934769 111.83767 
+L 246.615736 111.83767 
+L 246.615736 145.1033 
+L 244.934769 145.1033 
+z
+" style="fill:#b4b6b1;"/>
+   </g>
+   <g id="patch_9">
+    <path clip-path="url(#p36556f5e6d)" d="M 80.2 178.368931 
+L 399.583736 178.368931 
+L 399.583736 211.634562 
+L 80.2 211.634562 
+z
+" style="fill:#b05d48;"/>
+   </g>
+   <g id="patch_10">
+    <path clip-path="url(#p36556f5e6d)" d="M 399.583736 178.368931 
+L 698.795868 178.368931 
+L 698.795868 211.634562 
+L 399.583736 211.634562 
+z
+" style="fill:#9d855e;"/>
+   </g>
+   <g id="patch_11">
+    <path clip-path="url(#p36556f5e6d)" d="M 698.795868 178.368931 
+L 730.734242 178.368931 
+L 730.734242 211.634562 
+L 698.795868 211.634562 
+z
+" style="fill:#b4b6b1;"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path d="M 0 0 
+L 0 3.5 
+" id="m31c759c6ea" style="stroke:#000000;stroke-width:0.8;"/>
+      </defs>
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="80.2" xlink:href="#m31c759c6ea" y="219.95097"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 80.2, 235.744095)" x="80.2" y="235.744095">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="248.296703" xlink:href="#m31c759c6ea" y="219.95097"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 248.296703, 235.744095)" x="248.296703" y="235.744095">100</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="416.393407" xlink:href="#m31c759c6ea" y="219.95097"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 416.393407, 235.744095)" x="416.393407" y="235.744095">200</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_4">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="584.49011" xlink:href="#m31c759c6ea" y="219.95097"/>
+      </g>
+     </g>
+     <g id="text_4">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 584.49011, 235.744095)" x="584.49011" y="235.744095">300</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_5">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="752.586813" xlink:href="#m31c759c6ea" y="219.95097"/>
+      </g>
+     </g>
+     <g id="text_5">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 752.586813, 235.744095)" x="752.586813" y="235.744095">400</text>
+     </g>
+    </g>
+    <g id="text_6">
+     <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 462.62, 251.271751)" x="462.62" y="251.271751">完整4096拍中的无效气泡数</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_6">
+      <defs>
+       <path d="M 0 0 
+L -3.5 0 
+" id="m18cebb381a" style="stroke:#000000;stroke-width:0.8;"/>
+      </defs>
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="80.2" xlink:href="#m18cebb381a" y="61.939223"/>
+      </g>
+     </g>
+     <g id="text_7">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:end;" transform="rotate(-0, 73.2, 66.335786)" x="73.2" y="66.335786">链表触发窗口</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_7">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="80.2" xlink:href="#m18cebb381a" y="128.470485"/>
+      </g>
+     </g>
+     <g id="text_8">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:end;" transform="rotate(-0, 73.2, 132.867047)" x="73.2" y="132.867047">矩阵乘法窗口</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_8">
+      <g>
+       <use style="stroke:#000000;stroke-width:0.8;" x="80.2" xlink:href="#m18cebb381a" y="195.001747"/>
+      </g>
+     </g>
+     <g id="text_9">
+      <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:end;" transform="rotate(-0, 73.2, 199.398309)" x="73.2" y="199.398309">状态机窗口</text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_12">
+    <path d="M 80.2 219.95097 
+L 845.04 219.95097 
+" style="fill:none;stroke:#000000;stroke-linecap:square;stroke-linejoin:miter;stroke-width:0.8;"/>
+   </g>
+   <g id="text_10">
+    <text style="fill:#ffffff;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 176.015121, 64.96852)" x="176.015121" y="64.96852">114拍</text>
+   </g>
+   <g id="text_11">
+    <text style="fill:#ffffff;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 371.007297, 64.96852)" x="371.007297" y="64.96852">118拍</text>
+   </g>
+   <g id="text_12">
+    <text style="fill:#222222;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 490.355956, 64.96852)" x="490.355956" y="64.96852">24拍</text>
+   </g>
+   <g id="text_13">
+    <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 520.613363, 64.96852)" x="520.613363" y="64.96852">共256拍</text>
+   </g>
+   <g id="text_14">
+    <text style="fill:#ffffff;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 159.205451, 131.499782)" x="159.205451" y="131.499782">94拍</text>
+   </g>
+   <g id="text_15">
+    <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 256.701538, 131.499782)" x="256.701538" y="131.499782">共99拍</text>
+   </g>
+   <g id="text_16">
+    <text style="fill:#ffffff;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 239.891868, 198.031044)" x="239.891868" y="198.031044">190拍</text>
+   </g>
+   <g id="text_17">
+    <text style="fill:#ffffff;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 549.189802, 198.031044)" x="549.189802" y="198.031044">178拍</text>
+   </g>
+   <g id="text_18">
+    <text style="fill:#222222;font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 714.765055, 198.031044)" x="714.765055" y="198.031044">19拍</text>
+   </g>
+   <g id="text_19">
+    <text style="font-family:Microsoft YaHei;font-size:11px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 740.820044, 198.031044)" x="740.820044" y="198.031044">共387拍</text>
+   </g>
+   <g id="text_20">
+    <text style="font-family:Microsoft YaHei;font-size:16px;font-style:normal;font-weight:normal;text-anchor:middle;" transform="rotate(-0, 462.62, 19.99)" x="462.62" y="19.99">再追踪气泡来源：EX每次改向均对应随后两拍空缺</text>
+   </g>
+   <g id="legend_1">
+    <g id="patch_13">
+     <path d="M 258.205937 279.025743 
+L 278.205937 279.025743 
+L 278.205937 272.025743 
+L 258.205937 272.025743 
+z
+" style="fill:#b05d48;"/>
+    </g>
+    <g id="text_21">
+     <text style="font-family:Microsoft YaHei;font-size:10px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 286.205937, 279.025743)" x="286.205937" y="279.025743">条件分支纠正后的气泡</text>
+    </g>
+    <g id="patch_14">
+     <path d="M 406.205937 279.025743 
+L 426.205937 279.025743 
+L 426.205937 272.025743 
+L 406.205937 272.025743 
+z
+" style="fill:#9d855e;"/>
+    </g>
+    <g id="text_22">
+     <text style="font-family:Microsoft YaHei;font-size:10px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 434.205937, 279.025743)" x="434.205937" y="279.025743">跳转/返回改向后的气泡</text>
+    </g>
+    <g id="patch_15">
+     <path d="M 558.477813 279.025743 
+L 578.477813 279.025743 
+L 578.477813 272.025743 
+L 558.477813 272.025743 
+z
+" style="fill:#b4b6b1;"/>
+    </g>
+    <g id="text_23">
+     <text style="font-family:Microsoft YaHei;font-size:10px;font-style:normal;font-weight:normal;text-anchor:start;" transform="rotate(-0, 586.477813, 279.025743)" x="586.477813" y="279.025743">ID改向对应的气泡</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p36556f5e6d">
+   <rect height="182.96097" width="764.84" x="80.2" y="36.99"/>
+  </clipPath>
+ </defs>
+</svg>

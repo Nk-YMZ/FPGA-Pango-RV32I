@@ -1,0 +1,18 @@
+ILA_COREMARK80 start, clock=80000000, iterations=5000
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 1870726505
+Total time (secs): 23
+Iterations/Sec   : 217
+Iterations       : 5000
+Compiler version : GCC14.2.0
+Compiler flags   : -O2 RV32IM Zicsr bare-metal
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xbd59
+Correct operation validated. See readme.txt for run and reporting rules.
+ILA_PROFILE_END cycles=1870726505
+ILA_COREMARK80 start, clock=80000000, iterations=5000

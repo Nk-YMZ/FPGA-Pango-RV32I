@@ -1,0 +1,117 @@
+[
+  {
+    "file": "CoreMark板上流水线效率分析.html",
+    "bytes": 29711,
+    "sha256": "205985288ba573ad78dd6809609f824e0d73e97d33ceae7d02a68c1ce73b6d18"
+  },
+  {
+    "file": "CoreMark板上流水线效率分析.md",
+    "bytes": 20908,
+    "sha256": "4e85133cab7c3f63e02e5e76aedd0a548ddcc2ba91c973d9c43dcfcc43938dc7"
+  },
+  {
+    "file": "data/cm_list_data.csv",
+    "bytes": 437930,
+    "sha256": "27d7fffc19969211c04bd2900df475b414754a5ea3c03b6e0b3a8c1f8a99f557"
+  },
+  {
+    "file": "data/cm_matrix_data.csv",
+    "bytes": 468787,
+    "sha256": "a3f14b70842bcbb17bbe4f750791b78ba297d20d5bca9af9f5b52411df87563d"
+  },
+  {
+    "file": "data/cm_state_data.csv",
+    "bytes": 517504,
+    "sha256": "d4a341d4e64766f51794b844d1e7e5212600a6d94f1a46f82688771af7442df4"
+  },
+  {
+    "file": "data/coremark_uart.txt",
+    "bytes": 613,
+    "sha256": "36d70eafc882dbee64345f825fac9d312e538a0caf6fb516231df3a32d77d28e"
+  },
+  {
+    "file": "data/MEASUREMENTS.json",
+    "bytes": 2861,
+    "sha256": "43e17fb2c80f250752088cca9ca9990ebd9e599ab7d466521bd56b4df371107a"
+  },
+  {
+    "file": "data/VERIFIED_RESULTS.json",
+    "bytes": 4547,
+    "sha256": "f34517085db4dea9916b429e044890af253a14894adb0bef1d47f55eb18f717f"
+  },
+  {
+    "file": "data/本次补充统计.json",
+    "bytes": 2292,
+    "sha256": "e44c754f49a531c21f38f57ea61a3a77ac920044c7e8a0dcd0cd9afd8132af50"
+  },
+  {
+    "file": "figures/01_整窗周期分布.png",
+    "bytes": 114688,
+    "sha256": "8c4fffce12c168e69e096cd992594b5e634777432ac8821400772845d2ddbd08"
+  },
+  {
+    "file": "figures/01_整窗周期分布.svg",
+    "bytes": 13299,
+    "sha256": "025aa956cec6868ec42be8554025acfb1b1ba2cb766cf5f8c1e22ea44ad3978e"
+  },
+  {
+    "file": "figures/02_矩阵逐拍分析.png",
+    "bytes": 187602,
+    "sha256": "b3243ed2c92f3624cc72d7c9ba542a23aea70e848bab0ff53da8b42186c58d8e"
+  },
+  {
+    "file": "figures/02_矩阵逐拍分析.svg",
+    "bytes": 61145,
+    "sha256": "8652ae94ab042024e43f8ceee025b11c066e64081c815b2bb8a51293aa763258"
+  },
+  {
+    "file": "figures/03_状态机逐拍分析.png",
+    "bytes": 191688,
+    "sha256": "869e390fe91e129eff2328a0cf1e1a339a5660b480f37f8a1c4f43012aed6602"
+  },
+  {
+    "file": "figures/03_状态机逐拍分析.svg",
+    "bytes": 61145,
+    "sha256": "bfbe47eb0623a541f022c29a755c4033a602cc584e9ea2ab951101ae2614054a"
+  },
+  {
+    "file": "figures/04_链表逐拍分析.png",
+    "bytes": 182637,
+    "sha256": "e9b3b2e40df6e1d1ccf9cfb2dcc5d610a59cd8322021775b924d12e4e595d03b"
+  },
+  {
+    "file": "figures/04_链表逐拍分析.svg",
+    "bytes": 61125,
+    "sha256": "e7da1405aa3a2d5c9a82e1f3c94a60e2b640e84b1f604890e0517921a60074a5"
+  },
+  {
+    "file": "figures/05_控制改向与气泡对应.png",
+    "bytes": 114183,
+    "sha256": "1fba6535e9d989360c506e02db3f37d4c552d5f72af21a989538431bf30de739"
+  },
+  {
+    "file": "figures/05_控制改向与气泡对应.svg",
+    "bytes": 11161,
+    "sha256": "aa0085015eeee11985726f9605bb25b52d1ed413fbd3d9038a63794814138f2e"
+  },
+  {
+    "file": "pds_original/cm_list_native_detail.png",
+    "bytes": 330919,
+    "sha256": "e7f9cf51d126d07de7238636bec3a1d0b705799a211f02040cffdef70d1ec707"
+  },
+  {
+    "file": "pds_original/cm_matrix_native_detail.png",
+    "bytes": 311287,
+    "sha256": "caf3839f709e603259d4789c3fe3b76722e21c9a573dbbb713359f109a43ea81"
+  },
+  {
+    "file": "pds_original/cm_state_native_detail.png",
+    "bytes": 326427,
+    "sha256": "f2e5cfef1e187dda5d864a0f6585bdfce3f3dbda8250c341eaf1a1921f4dc32a"
+  },
+  {
+    "file": "生成分析图.py",
+    "bytes": 11974,
+    "sha256": "bf0f5ebf880eacd2c8099fc1f6cd0f53bb76ae6fe27f787b564fcea671e575b1"
+  }
+]

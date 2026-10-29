@@ -1,0 +1,90 @@
+{
+  "cm_list": {
+    "cycles": 4096,
+    "counts": {
+      "execute_advance": 3764,
+      "invalid_bubble": 256,
+      "load_wait": 2,
+      "global_hold": 74
+    },
+    "ipc": 0.9189453125,
+    "ex_redirect_events": 116,
+    "redirect_ops": {
+      "conditional_branch": 57,
+      "jump": 59
+    },
+    "branch_fix_bubbles": 114,
+    "jump_redirect_bubbles": 118,
+    "id_redirect_bubbles": 24,
+    "delayed_id_redirect_examples": [],
+    "load_wait_pcs": {
+      "0x0f2c": 1,
+      "0x1b30": 1
+    },
+    "branch_correction_fraction": 0.14728682170542637,
+    "forward_instruction_fraction": 0.4505844845908608,
+    "all_global_holds_are_unready_mem_reads": true
+  },
+  "cm_matrix": {
+    "cycles": 4096,
+    "counts": {
+      "execute_advance": 3237,
+      "invalid_bubble": 99,
+      "muldiv_wait": 760
+    },
+    "ipc": 0.790283203125,
+    "ex_redirect_events": 49,
+    "redirect_ops": {
+      "conditional_branch": 47,
+      "jump": 2
+    },
+    "branch_fix_bubbles": 94,
+    "jump_redirect_bubbles": 4,
+    "id_redirect_bubbles": 1,
+    "delayed_id_redirect_examples": [],
+    "load_wait_pcs": {},
+    "branch_correction_fraction": 0.10829493087557604,
+    "forward_instruction_fraction": 0.15261044176706828,
+    "all_global_holds_are_unready_mem_reads": true
+  },
+  "cm_state": {
+    "cycles": 4096,
+    "counts": {
+      "execute_advance": 3524,
+      "invalid_bubble": 387,
+      "global_hold": 75,
+      "load_wait": 110
+    },
+    "ipc": 0.860107421875,
+    "ex_redirect_events": 184,
+    "redirect_ops": {
+      "jump": 89,
+      "conditional_branch": 95
+    },
+    "branch_fix_bubbles": 190,
+    "jump_redirect_bubbles": 178,
+    "id_redirect_bubbles": 19,
+    "delayed_id_redirect_examples": [
+      {
+        "redirect_cycle": 20,
+        "bubble_cycle": 24
+      },
+      {
+        "redirect_cycle": 1173,
+        "bubble_cycle": 1177
+      }
+    ],
+    "load_wait_pcs": {
+      "0x1cb0": 44,
+      "0x1d14": 20,
+      "0x1ee0": 13,
+      "0x1d9c": 13,
+      "0x1e04": 9,
+      "0x1e4c": 8,
+      "0x1f04": 3
+    },
+    "branch_correction_fraction": 0.10508849557522124,
+    "forward_instruction_fraction": 0.4236662883087401,
+    "all_global_holds_are_unready_mem_reads": true
+  }
+}
