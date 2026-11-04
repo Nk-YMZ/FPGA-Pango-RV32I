@@ -12,12 +12,27 @@ CPU 通过监听外设采集 RS-485 总线流量，完成协议解析、设备�
 | 目录 | 内容 |
 |---|---|
 | `board/` | 上板交付（自洽，打开即可编译）：`source/` RTL 源码（18 个 Verilog 文件，含板级顶层与 PLL）、`firmware/` 固件源码与编译产物 hex、`constraints/` 板级约束、`IndustrialMonitor.pds` PDS 工程、`build.tcl` 一键构建脚本、`IndustrialMonitor_90MHz.sbit` 比特流 |
-| `tb/` | 仿真测试平台（Verilator），单元测试与 SoC 集成测试 |
-| `sw/` | 自研测试程序（`tests/`）与启动文件；应用固件就位在 `board/firmware/` |
-| `scripts/` | 验证脚本：ACT 官方指令集合规、随机指令/陷阱/中断测试、应用 demo、时序定性分析；`pc/` 桌面演示台源码与 exe |
-| `bench/` | CoreMark 移植层与成绩记录（CoreMark 源码本体按开发仓库 `scripts/setup.sh` 从外部拉取，包内不含） |
+| `tb/` | 仿真测试平台（Verilator）：ALU、乘除、分支预测、CSR、UART、GPIO、监听外设等模块级单元测试，及 SoC 整机平台 `tb_soc`（同时也是随机测试与应用 demo 的运行载体）；`mbus_gen` 为仿真用总线信号发生器 |
+| `sw/` | 跑在处理器上的测试程序：`tests/` 下 14 个测试（指令集冒烟、CSR 读写、乘除、各类异常陷入、中断、WFI 竞争等），及公共启动文件 `crt0.S`、链接脚本 |
+| `scripts/act/` | RISC-V 官方指令集合规测试（riscv-arch-test）适配层，与 Sail 参考模型黄金签名比对 |
+| `scripts/rtests/` | riscv-tests rv32mi 机器模式特权测试适配 |
+| `scripts/rand/` | 随机指令测试层：随机程序生成、批量运行与失败种子复现（含同步陷阱注入、中断注入两种变体），黄金参考为 Sail 模型 |
+| `scripts/demo/` | 应用演示场景生成脚本与 golden 基准输出（15 个总线场景 + 命令接口场景） |
+| `scripts/timing/` | 时序定性分析：yosys 6-LUT 映射后的最长路径级数测量 |
+| `scripts/bench/` | CoreMark 性能基准运行入口 |
+| `scripts/pc/` | 桌面演示台源码与 exe（总线监听 + 振动频谱显示） |
+| `scripts/` 根目录 | 构建辅助工具（RTL 文件清单、二进制转 hex、sv2v 生成脚本、开发环境搭建脚本） |
+| `bench/` | CoreMark 移植层与历史成绩记录 |
+| `Makefile` | 上述测试层的统一入口（`make test` / `act` / `rtests` / `rand` / `demo` / `bench` 等） |
 
 `legacy_rtl/`、`legacy_rtl_v/` 为历史工程节点遗留，不随交付包发布。
+
+### 验证资产的分工
+
+一个测试层的闭环由三部分配合完成：`tb/` 是仿真平台（在主机上驱动 RTL、注入激励），
+`sw/tests/` 与随机生成的程序是跑在被测处理器上的测试载荷，`scripts/` 下各子目录负责
+生成、编排与比对（随机层由 `scripts/rand/` 生成随机程序并交给 `tb_soc` 运行，再与
+Sail 黄金模型比对签名）。各层在开发期通过 `Makefile` 入口串联。
 
 ## 快速上手
 
