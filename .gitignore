@@ -22,3 +22,7 @@ __pycache__/
 
 # yosys abc 的历史文件（scripts/timing 运行时在仓库根目录产生）
 abc.history
+
+# 历史遗留 RTL（旧工程节点快照，不再追踪，仅本地保留）
+legacy_rtl/
+legacy_rtl_v/
