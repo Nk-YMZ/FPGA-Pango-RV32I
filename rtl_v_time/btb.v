@@ -1,5 +1,5 @@
-// 自动生成，请勿手改：rtl/btb.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// 分支目标表。每项保存地址标签、目标地址、JAL 标志和有效位。
+// 组合查询同时检查索引项的有效位与标签；时钟沿更新目标项，复位仅清有效位。
 `default_nettype none
 module btb (
 	clk,
@@ -26,17 +26,21 @@ module btb (
 	input wire update_is_jal;
 	localparam signed [31:0] ENTRIES = 2 ** INDEX_BITS;
 	localparam signed [31:0] TAG_W = (32 - INDEX_BITS) - 2;
+	// 索引位位于字地址低部，高部作为标签；目标保存完整字节地址。
+	// jals 标记无条件直接跳转，普通分支还需结合方向表决定是否使用目标。
 	reg [TAG_W - 1:0] tags [0:ENTRIES - 1];
 	reg [31:0] tgts [0:ENTRIES - 1];
 	reg jals [0:ENTRIES - 1];
 	reg [ENTRIES - 1:0] valids;
 	wire [INDEX_BITS - 1:0] lookup_idx = lookup_pc[INDEX_BITS + 1:2];
 	wire [INDEX_BITS - 1:0] update_idx = update_pc[INDEX_BITS + 1:2];
+	// 索引选择表项后再检查完整高位标签；目标数据只在 hit 为真时有效。
 	assign hit = valids[lookup_idx] && (tags[lookup_idx] == lookup_pc[31:INDEX_BITS + 2]);
 	assign target = tgts[lookup_idx];
 	assign is_jal = jals[lookup_idx];
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n)
+			// 复位后所有项均不命中；目标及标签仅在有效位为 1 时参与预测。
 			valids <= 1'sb0;
 		else if (update_en) begin
 			valids[update_idx] <= 1'b1;

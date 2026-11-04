@@ -1,5 +1,6 @@
-// 自动生成，请勿手改：rtl/uart.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// 命令及结果 UART，采用 8N1 格式。发送端带 FIFO，接收端保存一个字节及有效标志。
+// 偏移 0x00 为数据，0x04 为状态（bit0 发送满、bit1 接收有效），0x08 为位周期。
+// 发送满时写数据等待；读数据撤销接收有效，接收有效同时驱动电平中断。
 `default_nettype none
 module uart (
 	clk,
@@ -31,10 +32,13 @@ module uart (
 	localparam signed [31:0] PTR = $clog2(FIFO_DEPTH);
 	localparam [PTR:0] DEPTH_C = FIFO_DEPTH[PTR:0];
 	reg [15:0] div;
+	// FIFO 的 wr_ptr/rd_ptr 分别指向下一写入与下一装载位置，count 为待发送字节数。
+	// 当前正在串行移出的字节位于 tshift，不计入 FIFO count。
 	reg [7:0] fifo [0:FIFO_DEPTH - 1];
 	reg [PTR - 1:0] wr_ptr;
 	reg [PTR - 1:0] rd_ptr;
 	reg [PTR:0] count;
+	// 发送 FIFO 满时 ready 为低；入队和装载发送移位寄存器同时发生时条数保持。
 	wire tx_full = count == DEPTH_C;
 	wire tx_push = ((valid && write) && (addr == 4'h0)) && !tx_full;
 	wire tx_load;
@@ -59,12 +63,15 @@ module uart (
 			endcase
 		end
 	reg tx_busy;
+	// 发送移位字为停止位、八位数据、起始位；位周期到达后依次送出最低位。
 	reg [9:0] tshift;
 	reg [3:0] tbit;
 	reg [15:0] tbaud;
 	reg txd_r;
 	assign tx_load = !tx_busy && (count != 0);
 	assign txd = txd_r;
+	// 接收端仅保留一个有效字节；软件读取数据寄存器后撤销有效和中断。
+	// 若旧字节尚未读出又完成新字节，数据寄存器保存新字节。
 	reg rx_valid;
 	assign irq = rx_valid;
 	always @(posedge clk or negedge rst_n)
@@ -102,7 +109,10 @@ module uart (
 	reg [7:0] rx_data;
 	reg [1:0] rxd_sync;
 	wire rxd_s = rxd_sync[1];
+	// RX 先经两级同步，再用相邻同步样本识别下降沿。
+	// 半位后确认起始位为低，随后每个位周期采样一位，按最低位先接收。
 	wire rxd_negedge = rxd_sync == 2'b10;
+	// 读数据弹出当前接收字节；同一拍收到新字节时，新接收有效状态优先。
 	wire rx_pop = ((valid && !write) && (addr == 4'h0)) && ready;
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n) begin

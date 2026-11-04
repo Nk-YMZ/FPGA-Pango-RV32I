@@ -1,5 +1,5 @@
-// 自动生成，请勿手改：rtl/decoder.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// RV32IM 指令译码与立即数生成。输出源、目的寄存器编号和 28 位控制字。
+// 立即数按指令类型拼接并符号扩展；非法编码通过 ctrl[0] 标记。
 `default_nettype none
 module decoder (
 	instr,
@@ -11,17 +11,26 @@ module decoder (
 );
 	reg _sv2v_0;
 	input wire [31:0] instr;
+	// 控制字位域：27:24 ALU 操作，23 A 选 PC，22 B 选立即数，21 写寄存器；
+	// 20:19 写回来源（0 ALU、1 load、2 PC+4），18 load，17 store，
+	// 16:15 访问宽度（0 字节、1 半字、2 字），14 load 符号扩展；
+	// 13 条件分支，12 JAL，11 JALR，10:8 funct3；7 乘除法，6 CSR，5 CSR 立即数；
+	// 4 mret，3 wfi，2 ecall，1 ebreak，0 非法指令。
 	output reg [27:0] ctrl;
 	output reg [31:0] imm;
 	output wire [4:0] rs1;
 	output wire [4:0] rs2;
 	output wire [4:0] rd;
+	// 指令字段：opcode=[6:0]，rd=[11:7]，funct3=[14:12]，rs1=[19:15]，
+	// rs2=[24:20]，funct7=[31:25]。源字段保持原始编号，是否使用由控制字限定。
 	wire [6:0] opcode = instr[6:0];
 	wire [2:0] funct3 = instr[14:12];
 	wire [6:0] funct7 = instr[31:25];
 	assign rs1 = instr[19:15];
 	assign rs2 = instr[24:20];
 	assign rd = instr[11:7];
+	// I/S 为 12 位有符号立即数；B/J 的最低位固定补零；U 保留高 20 位并补低 12 位零。
+	// 各类立即数在此统一扩展到 32 位，后级直接参与地址或算术计算。
 	wire [31:0] imm_i = {{20 {instr[31]}}, instr[31:20]};
 	wire [31:0] imm_s = {{20 {instr[31]}}, instr[31:25], instr[11:7]};
 	wire [31:0] imm_b = {{19 {instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
@@ -30,9 +39,12 @@ module decoder (
 	always @(*) begin
 		if (_sv2v_0)
 			;
+		// 每次组合译码先清全部控制和立即数，再按 opcode/funct3/funct7 设置。
+		// 不支持的编码置非法标志；没有被该指令选中的控制字段保持为零。
 		ctrl = 1'sb0;
 		imm = 32'd0;
 		case (opcode)
+			// LUI：立即数直接作为 ALU 输出写回，不读取源寄存器参与计算。
 			7'b0110111: begin
 				ctrl[27-:4] = 4'd10;
 				ctrl[22] = 1'b1;
@@ -40,6 +52,7 @@ module decoder (
 				ctrl[20-:2] = 2'd0;
 				imm = imm_u;
 			end
+			// AUIPC：PC 与 U 型立即数相加，结果写入 rd。
 			7'b0010111: begin
 				ctrl[27-:4] = 4'd0;
 				ctrl[23] = 1'b1;
@@ -48,12 +61,14 @@ module decoder (
 				ctrl[20-:2] = 2'd0;
 				imm = imm_u;
 			end
+			// JAL：目标使用 PC+J 型立即数，写回值为 PC+4。
 			7'b1101111: begin
 				ctrl[12] = 1'b1;
 				ctrl[21] = 1'b1;
 				ctrl[20-:2] = 2'd2;
 				imm = imm_j;
 			end
+			// JALR 只接受 funct3=000，目标使用 rs1+I 型立即数并清 bit0。
 			7'b1100111:
 				if (funct3 == 3'b000) begin
 					ctrl[11] = 1'b1;
@@ -63,6 +78,7 @@ module decoder (
 				end
 				else
 					ctrl[0] = 1'b1;
+			// 六种条件分支将 funct3 传至 EX 比较单元，立即数提供相对目标偏移。
 			7'b1100011:
 				case (funct3)
 					3'b000, 3'b001, 3'b100, 3'b101, 3'b110, 3'b111: begin
@@ -72,6 +88,7 @@ module decoder (
 					end
 					default: ctrl[0] = 1'b1;
 				endcase
+			// LB/LH/LW/LBU/LHU 设置访问宽度及扩展方式；ALU 计算 rs1+I 型偏移。
 			7'b0000011: begin
 				case (funct3)
 					3'b000: begin
@@ -105,6 +122,7 @@ module decoder (
 					imm = imm_i;
 				end
 			end
+			// SB/SH/SW 使用 S 型偏移形成地址，rs2 提供存储数据，不产生寄存器写回。
 			7'b0100011: begin
 				case (funct3)
 					3'b000: ctrl[16-:2] = 2'd0;

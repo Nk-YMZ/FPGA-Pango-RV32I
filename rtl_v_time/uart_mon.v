@@ -1,5 +1,6 @@
-// 自动生成，请勿手改：rtl/uart_mon.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// 只接收 UART 采集外设。每条 FIFO 记录包含 32 位时钟时间戳、8 位字节和帧错误标志。
+// 软件先读 0x08 时间戳，再读 0x0c 数据及标志并弹出记录；FIFO 非空产生可屏蔽电平中断。
+// FIFO 满时丢弃新记录并累计溢出；clear 同时清 FIFO、溢出状态和时间计数。
 `default_nettype none
 module uart_mon (
 	clk,
@@ -34,6 +35,8 @@ module uart_mon (
 	reg [31:0] now_cnt;
 	reg [31:0] ovf_cnt;
 	reg ovf_sticky;
+	// 控制寄存器 bit0 为采集使能、bit1 为 FIFO 非空中断使能、bit2 为单拍清空请求。
+	// clear 不修改已设置的位周期；软件关闭采集后可设置 bitdiv，再清空并重新使能。
 	wire clear = ((valid && write) && (addr == 5'h00)) && wdata[2];
 	assign ready = 1'b1;
 	reg [PTR:0] count;
@@ -45,6 +48,8 @@ module uart_mon (
 			now_cnt <= 32'd0;
 		else
 			now_cnt <= now_cnt + 32'd1;
+	// 接收状态：等待下降沿、半位确认起始位、逐位采样 8 位、采样停止位。
+	// 停止位为低仍入队，同时设置帧错误标志。
 	reg [1:0] rstate;
 	reg [7:0] rshift;
 	reg [3:0] rbit;
@@ -101,16 +106,24 @@ module uart_mon (
 							rstate <= 2'd0;
 				endcase
 		end
+	// 记录位域：[31:0] 时间戳，[39:32] 字节，[40] 帧错误，[41] 保留。
 	reg [41:0] fifo [0:FIFO_DEPTH - 1];
 	reg [PTR - 1:0] wr_ptr;
 	reg [PTR - 1:0] rd_ptr;
 	reg [41:0] head_r;
 	wire full = count == DEPTH_C;
+	// 本拍开始时 FIFO 已满则不接收新记录，即使同拍也有 pop；溢出次数与粘滞位置位。
+	// 入队和出队都成功时 count 保持，只有一侧成功时才增减。
 	wire push_ok = push && !full;
+	// 读取时间戳不移动队首；读取 0x0c 才弹出记录，因此读取顺序为时间戳后数据。
+	// 空 FIFO 的读值为零，且不推进读指针。
 	wire pop = (valid && !write) && (addr == 5'h0c);
 	wire pop_ok = pop && (count != 0);
+	// 时间戳取停止位采样完成所在拍的 now_cnt，帧错误为该停止位不为高。
+	// clear 与接收完成同拍时不入队，全部记录从新的时间基准开始。
 	wire [41:0] push_rec = {1'b0, !rxd_s, rshift, now_cnt};
 	wire [PTR - 1:0] rd_ptr_next = (pop_ok ? rd_ptr + 1'b1 : rd_ptr);
+	// 缓存队首与下一读位置对应；新入队记录直接成为下一队首时使用旁路数据。
 	wire head_bypass = push_ok && (rd_ptr_next == wr_ptr);
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n) begin
@@ -156,6 +169,8 @@ module uart_mon (
 	always @(*) begin
 		if (_sv2v_0)
 			;
+		// 00 控制，04 非空/溢出/条数，08 队首时间戳，0c 弹出数据，
+		// 10 溢出次数，14 每位时钟周期数，18 当前时间计数。
 		case (addr)
 			5'h00: rdata = {30'h00000000, irq_en, en};
 			5'h04: rdata = {7'd0, sv2v_cast_9(count), 14'd0, ovf_sticky, count != 0};

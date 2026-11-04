@@ -1,5 +1,5 @@
-// 自动生成，请勿手改：rtl/imem.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// 同步读指令存储器。默认容量为 16384 个 32 位字，由 combined_imem.hex 初始化。
+// 字地址取 addr[AW+1:2]；时钟沿读取，ready 常为高，读取拍关系由取指级管理。
 `default_nettype none
 module imem (
 	clk,
@@ -13,10 +13,13 @@ module imem (
 	output wire [31:0] rdata;
 	output wire ready;
 	localparam signed [31:0] AW = $clog2(DEPTH_WORDS);
-		// 交付说明：mem 在产品 RTL 中只读（内容由仿真平台灌入），sv2v 降级为
-	// 无驱动 wire，此处改回 reg 以按同步读 BRAM（DRM）建模；程序内容的
-	// 加载方式（bitstream 初始化文件 / 引导逻辑）由上板工程决定
+		// 指令内容取自工程 firmware 目录的初始化文件，运行期间不写入。
 	reg [31:0] mem [0:DEPTH_WORDS - 1];
+initial begin
+    $readmemh("firmware/combined_imem.hex", mem);
+end
+	// 输出寄存器每个上升沿读取一个字；addr 的高位与低两位不参与 RAM 字下标。
+	// 取指级用同拍更新的 PC 保存这条读出指令的地址。
 	reg [31:0] rdata_reg;
 	always @(posedge clk) rdata_reg <= mem[addr[AW + 1:2]];
 	assign rdata = rdata_reg;

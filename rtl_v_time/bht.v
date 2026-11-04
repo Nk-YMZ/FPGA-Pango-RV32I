@@ -1,5 +1,5 @@
-// 自动生成，请勿手改：rtl/bht.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// 分支方向表。两个组合读端口按 PC 的字地址索引，最高计数位表示预测方向。
+// 每项为两位饱和计数器，初值 01；update_en 有效时按实际分支方向更新。
 `default_nettype none
 module bht (
 	clk,
@@ -21,13 +21,17 @@ module bht (
 	input wire [31:0] update_pc;
 	input wire update_taken;
 	localparam signed [31:0] ENTRIES = 2 ** INDEX_BITS;
+	// 00/01 表示不跳转，10/11 表示跳转；更新在两个端点饱和。
 	reg [1:0] cnt [0:ENTRIES - 1];
 	wire _unused_pc = &{1'b0, predict_pc[31:INDEX_BITS + 2], predict_pc[1:0], predict2_pc[31:INDEX_BITS + 2], predict2_pc[1:0], update_pc[31:INDEX_BITS + 2], update_pc[1:0]};
 	initial begin : sv2v_autoblock_1
 		reg signed [31:0] i;
 		for (i = 0; i < ENTRIES; i = i + 1)
+			// 上电状态 01 为弱不跳转；实际跳转递增，不跳转递减，端点 00/11 保持。
 			cnt[i] = 2'b01;
 	end
+	// PC 低两位为指令对齐位，不参与索引；不同高位 PC 可共享同一计数项。
+	// 两路读口分别取出各自索引项，写口每拍最多更新一个分支。
 	wire [INDEX_BITS - 1:0] predict_idx = predict_pc[INDEX_BITS + 1:2];
 	wire [INDEX_BITS - 1:0] predict2_idx = predict2_pc[INDEX_BITS + 1:2];
 	wire [INDEX_BITS - 1:0] update_idx = update_pc[INDEX_BITS + 1:2];

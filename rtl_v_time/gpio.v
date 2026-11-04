@@ -1,5 +1,5 @@
-// 自动生成，请勿手改：rtl/gpio.sv 经 sv2v 转换的 Verilog-2005 交付件（PDS 上板用）
-// 再生成：make verilog；同步检查：make vcheck（已挂入 make lint）。规则见 rtl_v/README.md
+// GPIO 外设。偏移 0x00 为输出寄存器，0x04 为同步后的输入，0x08 为中断使能。
+// 输入经两级寄存采样；启用的输入位为高时产生电平中断。
 `default_nettype none
 module gpio (
 	clk,
@@ -14,6 +14,7 @@ module gpio (
 	gpio_in,
 	irq
 );
+	parameter SUPPORT_INPUT_IRQ = 1'b1;
 	reg _sv2v_0;
 	input wire clk;
 	input wire rst_n;
@@ -26,12 +27,15 @@ module gpio (
 	output wire [31:0] gpio_out;
 	input wire [31:0] gpio_in;
 	output wire irq;
+	// out_reg 保存全部输出位，写寄存器替换整个 32 位值；输入采样与输出寄存器相互独立。
+	// ie_reg 按位使能输入高电平中断，不支持该功能的参数配置下写使能寄存器无效。
 	reg [31:0] out_reg;
 	reg [31:0] ie_reg;
 	reg [31:0] in_sync1;
 	reg [31:0] in_sync2;
 	assign ready = 1'b1;
 	assign gpio_out = out_reg;
+	// 中断为已使能输入位的电平或；输入清低或软件关闭对应使能后撤销。
 	assign irq = |(in_sync2 & ie_reg);
 	always @(posedge clk or negedge rst_n)
 		if (!rst_n) begin
@@ -43,7 +47,7 @@ module gpio (
 		else begin
 			if ((valid && write) && (addr == 4'h0))
 				out_reg <= wdata;
-			if ((valid && write) && (addr == 4'h8))
+			if (SUPPORT_INPUT_IRQ && (valid && write) && (addr == 4'h8))
 				ie_reg <= wdata;
 			in_sync1 <= gpio_in;
 			in_sync2 <= in_sync1;

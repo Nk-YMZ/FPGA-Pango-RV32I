@@ -1,4 +1,2 @@
-# PC 联调脚本依赖（pty 冒烟与真实串口联调用；跨平台自检 selftest.py
-# 不依赖第三方库）。开发机由 setup.sh 装入项目 .venv；联调机按
-# deploy.md 3.5 用 pacman（Arch）或 pip（Windows）安装
 pyserial==3.5
+PyInstaller>=6,<7
