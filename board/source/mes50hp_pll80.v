@@ -1,0 +1,25 @@
+// 板级时钟模块。GTP_PLL_E3 使用 50 MHz 输入和内部反馈，输出 90 MHz。
+// 固定分频参数对应 50 × 18 ÷ 10；rst 为高有效复位，locked 输出锁定状态。
+`default_nettype none
+module mes50hp_pll80(input wire clk50,input wire rst,output wire cpu_clk,output wire locked);
+// CLKIN1 为唯一输入，CLKOUT0 接 CPU 时钟；其余时钟输出未用于片上系统。
+// 固定比率和相位来自实例参数，运行时动态调节输入均为常量。
+GTP_PLL_E3 #(
+ .CLKIN_FREQ(50.0),.STATIC_RATIOI(1),.STATIC_RATIOM(1),.STATIC_RATIOF(18),
+ .STATIC_RATIO0(10),.STATIC_DUTY0(10),.STATIC_PHASE0(0),.STATIC_CPHASE0(0),
+ .STATIC_RATIO1(16),.STATIC_RATIO2(16),.STATIC_RATIO3(16),.STATIC_RATIO4(16),
+ .STATIC_DUTY1(16),.STATIC_DUTY2(16),.STATIC_DUTY3(16),.STATIC_DUTY4(16),
+ .INTERNAL_FB("ENABLE"),.EXTERNAL_FB("DISABLE"),.BANDWIDTH("OPTIMIZED")
+) pll_i (
+ .CLKOUT0(cpu_clk),.LOCK(locked),.CLKIN1(clk50),.CLKIN2(1'b0),.CLKFB(1'b0),
+ .CLKIN_SEL(1'b0),.CLKIN_SEL_EN(1'b0),.PFDEN(1'b0),.ICP_BASE(1'b0),
+ .ICP_SEL(4'b0),.LPFRES_SEL(3'b0),.CRIPPLE_SEL(1'b0),.PHASE_SEL(3'b0),
+ .PHASE_DIR(1'b0),.PHASE_STEP_N(1'b0),.LOAD_PHASE(1'b0),.RATIOI(10'b0),
+ .RATIOM(7'b0),.RATIO0(10'b0),.RATIO1(10'b0),.RATIO2(10'b0),.RATIO3(10'b0),
+ .RATIO4(10'b0),.RATIOF(10'b0),.DUTY0(10'b0),.DUTY1(10'b0),.DUTY2(10'b0),
+ .DUTY3(10'b0),.DUTY4(10'b0),.CLKOUT0_SYN(1'b0),.CLKOUT0_EXT_SYN(1'b0),
+ .CLKOUT1_SYN(1'b0),.CLKOUT2_SYN(1'b0),.CLKOUT3_SYN(1'b0),
+ .CLKOUT4_SYN(1'b0),.CLKOUT5_SYN(1'b0),.PLL_PWD(1'b0),.RST(rst),.RSTODIV(1'b0)
+);
+endmodule
+`default_nettype wire
