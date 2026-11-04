@@ -1,71 +1,33 @@
-# pango-riscv
+# FPGA-Pango-RV32I
 
-2026 年全国大学生嵌入式芯片与系统设计竞赛 · 紫光同创 FPGA 赛道选题一：
-基于紫光同创 RISC-V CPU 的设计（目标芯片：盘古 50）。
+基于紫光同创 PGL50H（盘古 50）的 RV32IM 处理器片上系统，运行工业总线监测应用：
+CPU 通过监听外设采集 RS-485 总线流量，完成协议解析、设备画像、故障诊断与振动频谱分析，
+结果经串口输出到桌面演示台显示。上电先运行 CoreMark，随后自动进入应用。
 
-本仓库实现一个 **RV32IM_Zicsr 五级流水线 32 位 CPU**（SystemVerilog），带 2-bit 动态
-分支预测器、多周期乘除法单元、M 态异常/中断**最小子集**（仅机器模式：精确陷入、
-MTI/MSI/MEI、WFI；未实现项清单见 design.md「特权架构边界」）、
-UART/GPIO/周期计数器/mtimer 外设与片上 BRAM，以及应用环节的 uart_mon 总线监听
-采集外设（字节+时间戳 FIFO），并完成仿真验证与官方合规测试。
-基础任务已全部完成并冻结于 rv32i-main 分支，当前在 rv32i-dev 分支进行
-性能优化（时序/IPC 迭代，规范见 AGENTS.md）。上板适配不在本仓库范围，
-但 rtl/ 配有自动生成的 Verilog-2005 交付件 rtl_v/（PDS 对高级 SV 语法
-支持不全，上板工程直接添加 rtl_v/ 即可）。
+- 器件：PGL50H-6 FBG484，主时钟 90 MHz
+- 工具链：PDS 2022.2 SP6.4；固件交叉编译 riscv64-elf-gcc；桌面演示台 Python 3 + pyserial
 
-## 验证状态
+## 目录结构
 
-- ✅ 全部测试层通过：官方 ACT RV32IM 47/47、官方 riscv-tests rv32mi 8/8、自研单元/集成测试
-- ✅ 三层随机化测试（`make rand` / `make randtrap` / `make randirq`）全量通过，
-  最近一轮全量复测各 100 个种子无一失败
-- ✅ 应用 demo 全链路闭环：`make demo` 15 个总线场景 + 命令接口场景×2 golden diff 通过
-- ✅ CoreMark 官方 CRC 校验通过，基线 10 次迭代 3,232,509 周期（见 `bench/results.csv`）
+| 目录 | 内容 |
+|---|---|
+| `board/` | 上板交付（自洽，打开即可编译）：`source/` RTL 源码（18 个 Verilog 文件，含板级顶层与 PLL）、`firmware/` 固件源码与编译产物 hex、`constraints/` 板级约束、`IndustrialMonitor.pds` PDS 工程、`build.tcl` 一键构建脚本、`IndustrialMonitor_90MHz.sbit` 比特流 |
+| `tb/` | 仿真测试平台（Verilator），单元测试与 SoC 集成测试 |
+| `sw/` | 自研测试程序（`tests/`）与启动文件；应用固件就位在 `board/firmware/` |
+| `scripts/` | 验证脚本：ACT 官方指令集合规、随机指令/陷阱/中断测试、应用 demo、时序定性分析；`pc/` 桌面演示台源码与 exe |
+| `bench/` | CoreMark 移植层与成绩记录（CoreMark 源码本体按开发仓库 `scripts/setup.sh` 从外部拉取，包内不含） |
 
-## 目录
+`legacy_rtl/`、`legacy_rtl_v/` 为历史工程节点遗留，不随交付包发布。
 
-```
-rtl/       CPU 核心与外设 RTL（soc_top.sv 为顶层）
-rtl_v/     rtl/ 的 Verilog-2005 转换交付件（sv2v 自动生成入库，供 PDS 上板使用）
-tb/        Verilator 测试平台
-sw/        测试程序与应用固件（链接脚本、crt0、C/汇编；sw/app/ 为 Modbus 监听应用）
-bench/     CoreMark 移植层与成绩记录（results.csv）
-scripts/   ACT 适配层（scripts/act/）、跑分脚本（scripts/bench/）、
-           随机测试层（scripts/rand/，riscv-dv Pygen 适配）、
-           demo 场景生成与 golden（scripts/demo/）、PC 端联调脚本（scripts/pc/）
-external/  外部组件（riscv-arch-test、coremark、riscv-dv、sail、riscv-tests；gitignore，脚本拉取）
-build/     生成产物（gitignore）
-.venv/     Python 环境（uv 管理，gitignore）
-```
+## 快速上手
 
-## 使用
-
-```bash
-make test    # 自研单元 + 核心冒烟 + 集成测试 + proto 宿主单元测试
-make act     # 官方 ISA 合规测试（47 项）
-make rtests  # 官方 riscv-tests rv32mi 机器模式特权测试（8 项）
-make rand    # riscv-dv 随机指令测试（Sail 黄金参考，签名比对）
-make randtrap # 同步陷阱随机化（注入 ecall/非法指令/非对齐，Sail 裁决陷入现场）
-make randirq # 中断透明性随机化（中断注入，三轮签名一致 + 计数断言）
-make bench   # CoreMark 跑分（周期数，逐次可比）
-make demo    # 应用 demo：总线监听多场景闭环（15 个总线场景 golden diff + 命令接口测试×2）
-make demo9600 # 真实波特率量级复验：15 个总线场景 × 9600 量级位周期（上板前补强，不作门禁）
-make stress  # 应用压力测量：扫帧间隔梯子找 FIFO 溢出临界点（评估性质，不作门禁）
-make wave    # 生成波形后用 gtkwave build/wave_soc.fst 查看
-make lint    # Verilator -Wall lint（含 rtl_v 与 rtl/ 的同步检查）
-make verilog # 由 rtl/ 经 sv2v 重新生成 rtl_v/（RTL 改动后必跑，随同提交）
-make test RTL_DIR=rtl_v  # 以 rtl_v/ 交付件为 DUT 源码跑测试（转换等价性验证）
-bash scripts/timing/run_timing.sh --quick  # 时序定性门禁（RTL 迭代必跑，最长路径级数比对基线）
-bash scripts/timing/run_timing.sh          # 全量时序分析（追加 top-12 最长路径枚举）
-```
-
-依赖：`sudo pacman -S verilator gtkwave riscv64-elf-gcc riscv64-elf-newlib make git python uv`，
-然后运行 `bash scripts/setup.sh` 自动拉取外部组件并备好工具链（详见 AGENTS.md）。
+1. **烧录现成比特流**：下载 `board/IndustrialMonitor_90MHz.sbit` 后上电运行，系统先执行 CoreMark，随后自动进入应用
+2. **重新编译工程**：PDS 打开 `board/IndustrialMonitor.pds`，或命令行执行 `build.tcl`（综合→布线→时序检查，时序全部满足后方生成比特流）。注意工程内文件均为相对路径引用（`source/`、`firmware/`、`constraints/`），请勿改动目录结构
+3. **桌面演示台**：直接运行 `scripts/pc/总线监听演示台.exe`；或源码方式 `cd scripts/pc && pip install -r requirements.txt && python bus_console_launcher.py`。串口终端与演示台共用串口，需分时使用
 
 ## 说明
 
-- 设计与验证的技术细节（微架构、异常/中断、各测试层原理、应用设计、地址映射
-  与外设接口、中断聚合）见 [design.md](design.md)（竞赛报告素材）；
-  迭代工作流程与仓库规范见 [AGENTS.md](AGENTS.md)；
-  上板落地路线（三阶段：仿真 → 电脑信号源实线 → 真实传感器）见
-  [deploy.md](deploy.md)，采购筛选与接线细节的完整版见根目录
-  《RISC-V工业通信分析仪实施指南》
+- 验证脚本按开发期完整仓库布局编写（当时 RTL 位于顶层 `rtl/`、固件位于 `sw/app/`）；
+  本包为精简交付版，上述内容已并入 `board/`，因此仿真流程在本包内无法直接运行，目录与脚本仅供查验验证体系之用
+- RTL 为哈佛结构，指令/数据存储器各 64KB，由 `firmware/combined_*.hex` 初始化
+- 固件重新编译入口：`board/firmware/build_application.cmd`
