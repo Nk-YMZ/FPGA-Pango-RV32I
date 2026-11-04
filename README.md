@@ -25,8 +25,6 @@ CPU 通过监听外设采集 RS-485 总线流量，完成协议解析、设备�
 | `bench/` | CoreMark 移植层与历史成绩记录 |
 | `Makefile` | 上述测试层的统一入口（`make test` / `act` / `rtests` / `rand` / `demo` / `bench` 等） |
 
-`legacy_rtl/`、`legacy_rtl_v/` 为历史工程节点遗留，不随交付包发布。
-
 ### 验证资产的分工
 
 一个测试层的闭环由三部分配合完成：`tb/` 是仿真平台（在主机上驱动 RTL、注入激励），
